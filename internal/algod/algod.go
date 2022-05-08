@@ -214,7 +214,7 @@ func (node *Node) UpdateStatusAfter(ctx context.Context) uint64 {
 	var lr uint64 = 0
 	err := utils.Backoff(ctx, func(actx context.Context) error {
 		//skip ahead
-		lr := node.gState.GetLatestRound()
+		lr = node.gState.GetLatestRound()
 		start := time.Now()
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
@@ -398,6 +398,9 @@ func proxyStatus(proxyStatuses *[]int, status int) bool {
 func (node *Node) SetState(state ANState, reason string) {
 	node.Lock()
 	defer node.Unlock()
+	if state == node.state {
+		return
+	}
 	oldState := node.state
 	oldStateAt := node.state_at
 	node.state = state
