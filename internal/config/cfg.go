@@ -24,9 +24,6 @@ import (
 )
 
 var cfgFile = flag.String("f", "config.jsonc", "config file")
-var firstRound = flag.Int64("r", -1, "first round to start [-1 = latest]")
-var lastRound = flag.Int64("l", -1, "last round to read [-1 = no limit]")
-var simpleFlag = flag.Bool("s", false, "simple mode - just sending blocks in JSON format to stdout")
 
 type SteramerConfig struct {
 	Algod *algod.AConfig `json:"algod"`
@@ -43,11 +40,8 @@ func LoadConfig() (cfg SteramerConfig, err error) {
 	if cfg.Algod == nil {
 		return cfg, fmt.Errorf("[CFG] Missing algod config")
 	}
-	if len(cfg.Algod.ANodes) == 0 {
+	if len(cfg.Algod.Nodes) == 0 {
 		return cfg, fmt.Errorf("[CFG] Configure at least one node")
 	}
-	cfg.Algod.FRound = *firstRound
-	cfg.Algod.LRound = *lastRound
-
 	return cfg, err
 }

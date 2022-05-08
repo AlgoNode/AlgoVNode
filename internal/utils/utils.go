@@ -18,6 +18,7 @@ package utils
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -29,7 +30,7 @@ import (
 
 type eternalFn func(ctx context.Context) error
 
-func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time.Duration, maxwait time.Duration) error {
+func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time.Duration, maxwait time.Duration, tries int64) error {
 	//Loop until Algoverse gets cancelled
 	for {
 		if ctx.Err() != nil {
@@ -42,7 +43,12 @@ func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time
 			return nil
 		}
 		cancel()
-		fmt.Fprintf(os.Stderr, err.Error())
+		tries--
+		if tries == 0 {
+			return errors.New("Backoff limit reached")
+		}
+		//TODO
+		//		fmt.Fprintf(os.Stderr, err.Error())
 
 		//keep an eye on cancellation while backing off
 		if wait > 0 {

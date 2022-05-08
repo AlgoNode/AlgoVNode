@@ -17,12 +17,11 @@ package algod
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"math"
 	"net/http"
-	"os"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/algonode/algovnode/internal/utils"
@@ -37,19 +36,15 @@ import (
 type ANState int64
 
 const (
-	httpTimeout = 4000
-)
-
-const (
 	AnsConfig ANState = iota
 	AnsBooting
-	AnsBooted
 	AnsSyncing
 	AnsSynced
 	AnsFailed
 )
 
-type ANConfig struct {
+type Node struct {
+	sync.Mutex
 	Address     string `json:"address"`
 	Token       string `json:"token"`
 	Id          string `json:"id"`
@@ -57,24 +52,238 @@ type ANConfig struct {
 	log         *logrus.Entry
 	httpClient  *http.Client
 	algodClient *algod.Client
-	parentCtx   context.Context
 	genesis     string
 	catchup     bool
 	ttlEwma     float32
-	health      int32
-	latestBlock uint64
+	latestRound uint64
 	state       ANState
 	state_at    time.Time
+	gState      *GlobalState
 }
 
-func (node *ANConfig) Boot(ctx context.Context, log logrus.Logger) error {
-	node.state = AnsBooting
-	node.health = 3
-	node.latestBlock = 0
+type GlobalState struct {
+	sync.Mutex
+	fatalErr    chan error
+	blockSink   chan *BlockWrap
+	latestRound uint64
+	lastSrc     *Node
+	lastAt      time.Time
+	genesis     string
+	//lruCache
+}
+
+func (gs *GlobalState) GetLatestRound() uint64 {
+	gs.Lock()
+	lr := gs.latestRound
+	gs.Unlock()
+	return lr
+}
+
+func (gs *GlobalState) SetLatestRound(lr uint64) bool {
+	gs.Lock()
+	defer gs.Unlock()
+	if lr > gs.latestRound {
+		gs.latestRound = lr
+		return true
+	}
+	return false
+}
+
+func (gs *GlobalState) EnsureGenesis(g string) error {
+	gs.Lock()
+	defer gs.Unlock()
+	if gs.genesis == "" {
+		gs.genesis = g
+		return nil
+	}
+	if gs.genesis == g {
+		return nil
+	}
+	return errors.New("Genesis mismatch")
+}
+
+func (gs *GlobalState) HandleFatal(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-gs.fatalErr:
+	}
+}
+
+func (node *Node) UpdateWithStatus(nodeStatus *models.NodeStatus) bool {
+	if nodeStatus.StoppedAtUnsupportedRound {
+		node.SetState(AnsFailed, "Upgrade required")
+		return false
+	}
+
+	if nodeStatus.CatchupTime > 0 {
+		node.SetState(AnsSyncing, "Not synced")
+	} else {
+		node.SetState(AnsSynced, "Synced")
+	}
+	node.Lock()
+	if nodeStatus.LastRound > node.latestRound {
+		node.latestRound = nodeStatus.LastRound
+	}
+	node.log.Debugf("lastRound is %d", node.latestRound)
+	node.Unlock()
+	return true
+}
+
+func (node *Node) UpdateStatus(ctx context.Context) bool {
+	var nodeStatus *models.NodeStatus
+	err := utils.Backoff(ctx, func(actx context.Context) error {
+		start := time.Now()
+		ns, err := node.algodClient.Status().Do(actx)
+		if err != nil {
+			node.log.WithError(err).Warn("GetStatus")
+			return err
+		}
+		dur := time.Since(start).Milliseconds()
+		node.ttlEwma = node.ttlEwma*0.9 + float32(dur)*0.1
+		nodeStatus = &ns
+		return nil
+	}, time.Second*10, time.Millisecond*100, time.Second*10, 0)
+	if err != nil {
+		//Ctx got cancelled, exit silently
+		return false
+	}
+	return node.UpdateWithStatus(nodeStatus)
+
+}
+
+func (node *Node) Boot(ctx context.Context) bool {
+	node.SetState(AnsBooting, "Booting")
+	node.latestRound = 0
+
+	var genesis string = ""
+	err := utils.Backoff(ctx, func(actx context.Context) error {
+		g, err := node.algodClient.GetGenesis().Do(actx)
+		if err != nil {
+			node.log.WithError(err).Warn("GetGenesis")
+			return err
+		}
+		genesis = g
+		return nil
+	}, time.Second*10, time.Millisecond*100, time.Second*10, 0)
+	if err != nil {
+		//Ctx got cancelled, exit silently
+		return false
+	}
+
+	//Make sure all nodes have the same genesis
+	if err := node.gState.EnsureGenesis(genesis); err != nil {
+		//Singal fatal error
+		node.gState.fatalErr <- err
+		return false
+	}
+	node.genesis = genesis
+	return node.UpdateStatus(ctx)
+}
+func (node *Node) UpdateTTL(ms int64) {
+	node.Lock()
+	node.ttlEwma = node.ttlEwma*0.9 + float32(ms)*0.1
+	node.Unlock()
+}
+
+func (node *Node) UpdateStatusAfter(ctx context.Context) uint64 {
+	var nodeStatus *models.NodeStatus
+	var lr uint64 = 0
+	err := utils.Backoff(ctx, func(actx context.Context) error {
+		//skip ahead
+		lr := node.gState.GetLatestRound()
+		start := time.Now()
+		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
+		if err != nil {
+			node.log.WithError(err).Warnf("StatusAfterBlock %d", lr)
+			return err
+		}
+		node.UpdateTTL(time.Since(start).Milliseconds())
+		nodeStatus = &ns
+		return nil
+	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
+	if err != nil {
+		node.log.WithError(err).Errorf("StatusAfterBlock %d", lr)
+		//reboot
+		return 0
+	}
+	if !node.UpdateWithStatus(nodeStatus) {
+		//reboot
+		return 0
+	}
+	return lr
+}
+
+func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
+	var block *types.Block
+	var rawBlock []byte
+
+	err := utils.Backoff(ctx, func(actx context.Context) error {
+
+		rb, err := node.algodClient.BlockRaw(bn).Do(ctx)
+		if err != nil {
+			node.log.WithError(err).Warnf("BlockRaw %d", bn)
+			return err
+		}
+		var response models.BlockResponse
+		msgpack.CodecHandle.ErrorIfNoField = false
+		if err = msgpack.Decode(rb, &response); err != nil {
+			node.log.WithError(err).Warn()
+			return err
+		}
+		block = &response.Block
+		rawBlock = rb
+		return nil
+	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
+	if err != nil {
+		node.log.WithError(err).Errorf("BlockRaw %d", bn)
+		//reboot
+		return false
+	}
+	node.BlockSink(block, rawBlock)
+	return true
+}
+
+func (node *Node) Monitor(ctx context.Context) {
+	for ctx.Err() == nil {
+		//TODO - detect node swap mainnet -> testnet
+
+		lr := node.UpdateStatusAfter(ctx)
+		if lr == 0 {
+			//reboot
+			break
+		}
+
+		if node.state != AnsSynced {
+			node.log.Debug("Node is syncing, skipping block fetch")
+			time.Sleep(time.Second)
+			continue
+		}
+
+		if !node.FetchBlockRaw(ctx, lr+1) {
+			//reboot
+			break
+		}
+	}
+}
+
+func (node *Node) MainLoop(ctx context.Context) {
+	for ctx.Err() == nil {
+		if !node.Boot(ctx) {
+			time.Sleep(time.Second)
+			continue
+		}
+		node.Monitor(ctx)
+		time.Sleep(time.Second)
+	}
+}
+
+func (node *Node) Start(ctx context.Context, gs *GlobalState, log logrus.Logger) error {
+	node.state = AnsConfig
+	node.state_at = time.Now()
 	node.catchup = true
-	node.parentCtx = ctx
-	node.ttlEwma = 1000
-	node.log = log.WithFields(logrus.Fields{"nodeId": node.Id, "state": node.state})
+	node.ttlEwma = 300
+	node.gState = gs
+	node.log = log.WithFields(logrus.Fields{"nodeId": node.Id, "state": &node.state})
 	hdrs := []*common.Header{
 		{Key: "Referer", Value: "http://AlgoNode.VN1"},
 	}
@@ -94,19 +303,15 @@ func (node *ANConfig) Boot(ctx context.Context, log logrus.Logger) error {
 		Timeout:   10 * time.Second,
 		Transport: ht,
 	}
-	go func() {
-		s, e := aClient.Status().Do()
-
-	}()
-
+	go node.MainLoop(ctx)
 	return nil
 }
 
 type AConfig struct {
-	Nodes []*ANConfig `json:"nodes"`
+	Nodes []*Node `json:"nodes"`
 }
 
-type Status struct {
+type NodeStatus struct {
 	LastRound uint64
 	LagMs     int64
 	NodeId    string
@@ -114,10 +319,11 @@ type Status struct {
 }
 
 type BlockWrap struct {
-	Block    *types.Block `json: "block"`
-	BlockRaw []byte       `json:"-"`
-	Src      string       `json:"src"`
-	Ts       time.Time    `json:"ts"`
+	Bn       uint64
+	Block    *types.Block
+	BlockRaw []byte
+	Src      *Node
+	Ts       time.Time
 }
 
 func copyHeader(dst, src http.Header) {
@@ -125,6 +331,20 @@ func copyHeader(dst, src http.Header) {
 		for _, v := range vv {
 			dst.Add(k, v)
 		}
+	}
+}
+
+func (node *Node) BlockSink(block *types.Block, blockRaw []byte) {
+	if node.gState.SetLatestRound(uint64(block.Round)) {
+		//we won the race
+		bw := &BlockWrap{
+			Bn:       uint64(block.Round),
+			Ts:       time.Now(),
+			Block:    block,
+			BlockRaw: blockRaw,
+			Src:      node,
+		}
+		node.gState.blockSink <- bw
 	}
 }
 
@@ -140,15 +360,17 @@ func proxyStatus(proxyStatuses *[]int, status int) bool {
 	return false
 }
 
-func (node *ANConfig) SetState(state ANState) {
+func (node *Node) SetState(state ANState, reason string) {
+	node.Lock()
+	defer node.Unlock()
 	oldState := node.state
 	oldStateAt := node.state_at
 	node.state = state
 	node.state_at = time.Now()
-	node.log.WithFields(logrus.Fields{"oldState": oldState, "durationSec": node.state_at.Sub(oldStateAt).Seconds()}).Info("State change")
+	node.log.WithFields(logrus.Fields{"oldState": oldState, "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
 }
 
-func (node *ANConfig) ProxyHTTP(wr http.ResponseWriter, req *http.Request, proxyStatuses *[]int) (bool, int, error) {
+func (node *Node) ProxyHTTP(wr http.ResponseWriter, req *http.Request, proxyStatuses *[]int) (bool, int, error) {
 	node.log.WithFields(logrus.Fields{"method": req.Method, "url": req.URL}).Info()
 	req.RequestURI = ""
 	//Todo: keep-alive ??
@@ -176,6 +398,8 @@ func (node *ANConfig) ProxyHTTP(wr http.ResponseWriter, req *http.Request, proxy
 //globalMaxBlock holds the highest read block across all connected nodes
 //writes must use atomic interface
 //reads are safe as the var is 64bit aligned
+
+/*
 var globalMaxBlock uint64 = 0
 
 func AlgoVNode(ctx context.Context, acfg *AConfig) (chan *BlockWrap, chan *Status, error) {
@@ -316,3 +540,4 @@ func algodStreamNode(ctx context.Context, acfg *AConfig, idx int, bchan chan *Bl
 
 	return nil
 }
+*/
