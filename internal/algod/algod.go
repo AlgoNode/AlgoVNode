@@ -263,7 +263,9 @@ func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
 		//reboot
 		return false
 	}
-	node.BlockSink(block, rawBlock)
+	if node.BlockSink(block, rawBlock) {
+		node.log.Infof("Block %d is now lastest", block.Round)
+	}
 	return true
 }
 
@@ -279,7 +281,7 @@ func (node *Node) Monitor(ctx context.Context) {
 		}
 
 		if node.state != AnsSynced {
-			node.log.Debug("Node is syncing, skipping block fetch")
+			node.log.Warn("Node is syncing, skipping block fetch")
 			time.Sleep(time.Second)
 			continue
 		}
@@ -369,7 +371,7 @@ func copyHeader(dst, src http.Header) {
 	}
 }
 
-func (node *Node) BlockSink(block *types.Block, blockRaw []byte) {
+func (node *Node) BlockSink(block *types.Block, blockRaw []byte) bool {
 	if node.gState.SetLatestRound(uint64(block.Round), node) {
 		//we won the race
 		bw := &BlockWrap{
@@ -380,7 +382,9 @@ func (node *Node) BlockSink(block *types.Block, blockRaw []byte) {
 			Src:      node,
 		}
 		node.gState.blockSink <- bw
+		return true
 	}
+	return false
 }
 
 func proxyStatus(proxyStatuses *[]int, status int) bool {
@@ -405,7 +409,7 @@ func (node *Node) SetState(state ANState, reason string) {
 	oldStateAt := node.state_at
 	node.state = state
 	node.state_at = time.Now()
-	node.log.WithFields(logrus.Fields{"oldState": oldState, "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
+	node.log.WithFields(logrus.Fields{"oldState": oldState.String(), "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
 }
 
 func (node *Node) ProxyHTTP(wr http.ResponseWriter, req *http.Request, proxyStatuses *[]int) (bool, int, error) {
