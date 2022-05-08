@@ -16,32 +16,42 @@
 package config
 
 import (
+	"errors"
 	"flag"
-	"fmt"
 
-	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/utils"
 )
 
 var cfgFile = flag.String("f", "config.jsonc", "config file")
 
-type SteramerConfig struct {
-	Algod *algod.AConfig `json:"algod"`
+type ANode struct {
+	Address  string `json:"address"`
+	Token    string `json:"token"`
+	Id       string `json:"id"`
+	ReqLimit int32  `json:"reqlimit"`
 }
 
-var defaultConfig = SteramerConfig{}
+type AConfig struct {
+	Nodes []*ANode `json:"nodes"`
+}
+
+type AlgoVNodeConfig struct {
+	Algod *AConfig `json:"algod"`
+}
+
+var defaultConfig = AlgoVNodeConfig{}
 
 // loadConfig loads the configuration from the specified file, merging into the default configuration.
-func LoadConfig() (cfg SteramerConfig, err error) {
+func LoadConfig() (cfg AlgoVNodeConfig, err error) {
 	flag.Parse()
 	cfg = defaultConfig
 	err = utils.LoadJSONCFromFile(*cfgFile, &cfg)
 
 	if cfg.Algod == nil {
-		return cfg, fmt.Errorf("[CFG] Missing algod config")
+		return cfg, errors.New("Missing algod config")
 	}
 	if len(cfg.Algod.Nodes) == 0 {
-		return cfg, fmt.Errorf("[CFG] Configure at least one node")
+		return cfg, errors.New("Configure at least one node")
 	}
 	return cfg, err
 }

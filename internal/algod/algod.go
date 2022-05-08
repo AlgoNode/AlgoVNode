@@ -18,12 +18,14 @@ package algod
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/algonode/algovnode/internal/config"
 	"github.com/algonode/algovnode/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/client/v2/common"
@@ -43,12 +45,26 @@ const (
 	AnsFailed
 )
 
+func (s ANState) String() string {
+	switch s {
+	case AnsBooting:
+		return "Booting"
+	case AnsSyncing:
+		return "Syncing"
+	case AnsSynced:
+		return "Synced"
+	case AnsConfig:
+		return "Config"
+	case AnsFailed:
+		return "Failed"
+	default:
+		return fmt.Sprintf("%d", int(s))
+	}
+}
+
 type Node struct {
 	sync.Mutex
-	Address     string `json:"address"`
-	Token       string `json:"token"`
-	Id          string `json:"id"`
-	ReqLimit    int32  `json:"reqlimit"`
+	cfg         *config.ANode
 	log         *logrus.Entry
 	httpClient  *http.Client
 	algodClient *algod.Client
@@ -69,7 +85,8 @@ type GlobalState struct {
 	lastSrc     *Node
 	lastAt      time.Time
 	genesis     string
-	//lruCache
+	nodes       []*Node
+	//TODO lruCache
 }
 
 func (gs *GlobalState) GetLatestRound() uint64 {
@@ -79,11 +96,13 @@ func (gs *GlobalState) GetLatestRound() uint64 {
 	return lr
 }
 
-func (gs *GlobalState) SetLatestRound(lr uint64) bool {
+func (gs *GlobalState) SetLatestRound(lr uint64, node *Node) bool {
 	gs.Lock()
 	defer gs.Unlock()
 	if lr > gs.latestRound {
 		gs.latestRound = lr
+		gs.lastAt = time.Now()
+		gs.lastSrc = node
 		return true
 	}
 	return false
@@ -105,7 +124,8 @@ func (gs *GlobalState) EnsureGenesis(g string) error {
 func (gs *GlobalState) HandleFatal(ctx context.Context) {
 	select {
 	case <-ctx.Done():
-	case <-gs.fatalErr:
+	case err := <-gs.fatalErr:
+		logrus.WithError(err).Error("Quitting due to fatal error")
 	}
 }
 
@@ -147,8 +167,11 @@ func (node *Node) UpdateStatus(ctx context.Context) bool {
 		//Ctx got cancelled, exit silently
 		return false
 	}
-	return node.UpdateWithStatus(nodeStatus)
-
+	if node.UpdateWithStatus(nodeStatus) {
+		node.gState.SetLatestRound(node.latestRound, node)
+		return true
+	}
+	return false
 }
 
 func (node *Node) Boot(ctx context.Context) bool {
@@ -173,6 +196,7 @@ func (node *Node) Boot(ctx context.Context) bool {
 	//Make sure all nodes have the same genesis
 	if err := node.gState.EnsureGenesis(genesis); err != nil {
 		//Singal fatal error
+		node.log.WithError(err).Error()
 		node.gState.fatalErr <- err
 		return false
 	}
@@ -250,6 +274,7 @@ func (node *Node) Monitor(ctx context.Context) {
 		lr := node.UpdateStatusAfter(ctx)
 		if lr == 0 {
 			//reboot
+			node.log.Errorf("Rebooting node due to issue with UpdateStatusAfter")
 			break
 		}
 
@@ -258,10 +283,15 @@ func (node *Node) Monitor(ctx context.Context) {
 			time.Sleep(time.Second)
 			continue
 		}
-
-		if !node.FetchBlockRaw(ctx, lr+1) {
-			//reboot
-			break
+		clr := node.gState.GetLatestRound()
+		if clr < lr+1 {
+			if !node.FetchBlockRaw(ctx, lr+1) {
+				//reboot
+				node.log.Errorf("Rebooting node due to issue with Fetch Block")
+				break
+			}
+		} else {
+			node.log.Debugf("Skipping already fetched block %d", clr)
 		}
 	}
 }
@@ -277,19 +307,28 @@ func (node *Node) MainLoop(ctx context.Context) {
 	}
 }
 
-func (node *Node) Start(ctx context.Context, gs *GlobalState, log logrus.Logger) error {
-	node.state = AnsConfig
-	node.state_at = time.Now()
-	node.catchup = true
-	node.ttlEwma = 300
-	node.gState = gs
-	node.log = log.WithFields(logrus.Fields{"nodeId": node.Id, "state": &node.state})
+func (gs *GlobalState) AddNode(ctx context.Context, cfg *config.ANode) error {
+	node := &Node{
+		state:    AnsConfig,
+		state_at: time.Now(),
+		catchup:  true,
+		ttlEwma:  300,
+		gState:   gs,
+		cfg:      cfg,
+		genesis:  "",
+	}
+	node.log = logrus.WithFields(logrus.Fields{"nodeId": cfg.Id, "state": &node.state})
+	gs.nodes = append(gs.nodes, node)
+	return node.Start(ctx)
+}
+
+func (node *Node) Start(ctx context.Context) error {
 	hdrs := []*common.Header{
 		{Key: "Referer", Value: "http://AlgoNode.VN1"},
 	}
-	aClient, err := algod.MakeClientWithHeaders(node.Address, node.Token, hdrs)
+	aClient, err := algod.MakeClientWithHeaders(node.cfg.Address, node.cfg.Token, hdrs)
 	if err != nil {
-		log.WithError(err).Error()
+		node.log.WithError(err).Error()
 		return err
 	}
 	node.algodClient = aClient
@@ -305,10 +344,6 @@ func (node *Node) Start(ctx context.Context, gs *GlobalState, log logrus.Logger)
 	}
 	go node.MainLoop(ctx)
 	return nil
-}
-
-type AConfig struct {
-	Nodes []*Node `json:"nodes"`
 }
 
 type NodeStatus struct {
@@ -335,7 +370,7 @@ func copyHeader(dst, src http.Header) {
 }
 
 func (node *Node) BlockSink(block *types.Block, blockRaw []byte) {
-	if node.gState.SetLatestRound(uint64(block.Round)) {
+	if node.gState.SetLatestRound(uint64(block.Round), node) {
 		//we won the race
 		bw := &BlockWrap{
 			Bn:       uint64(block.Round),
@@ -541,3 +576,18 @@ func algodStreamNode(ctx context.Context, acfg *AConfig, idx int, bchan chan *Bl
 	return nil
 }
 */
+
+func Main(ctx context.Context, cfg config.AlgoVNodeConfig) {
+	gState := GlobalState{
+		genesis:     "",
+		latestRound: 0,
+		fatalErr:    make(chan error),
+		blockSink:   make(chan *BlockWrap, 1000),
+		nodes:       make([]*Node, 0),
+	}
+	for _, n := range cfg.Algod.Nodes {
+		gState.AddNode(ctx, n)
+	}
+	//TODO sink
+	gState.HandleFatal(ctx)
+}

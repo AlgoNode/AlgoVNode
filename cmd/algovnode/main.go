@@ -17,21 +17,27 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/config"
+	log "github.com/sirupsen/logrus"
 )
+
+func init() {
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.DebugLevel)
+}
 
 func main() {
 
 	//load config
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] loading config: %s\n", err)
+		log.WithError(err).Error("Loading config")
 		return
 	}
 
@@ -43,21 +49,12 @@ func main() {
 		cancelCh := make(chan os.Signal, 1)
 		signal.Notify(cancelCh, syscall.SIGTERM, syscall.SIGINT)
 		go func() {
-			<-cancelCh
-			fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] stopping streamer.\n")
+			s := <-cancelCh
+			log.Errorf("Stopping algovnode due to %s", s.String())
 			cf()
 		}()
 	}
 
-	//spawn a block stream fetcher that never fails
-	//	blocks, status, err := algod.AlgoVNode(ctx, cfg.Algod)
-	_, _, err = algod.AlgoVNode(ctx, cfg.Algod)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[!ERR][_MAIN] error getting algod stream: %s\n", err)
-		return
-	}
-
-	//Wait for the end of the Algoverse
-	<-ctx.Done()
+	algod.Main(ctx, cfg)
 
 }
