@@ -28,7 +28,7 @@ import (
 	"github.com/tidwall/jsonc"
 )
 
-type eternalFn func(ctx context.Context) error
+type eternalFn func(ctx context.Context) (fatal bool, err error)
 
 func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time.Duration, maxwait time.Duration, tries int64) error {
 	//Loop until Algoverse gets cancelled
@@ -37,12 +37,15 @@ func Backoff(ctx context.Context, fn eternalFn, timeout time.Duration, wait time
 			return ctx.Err()
 		}
 		cctx, cancel := context.WithTimeout(ctx, timeout)
-		err := fn(cctx)
+		fatal, err := fn(cctx)
 		if err == nil { // Success
 			cancel()
 			return nil
 		}
 		cancel()
+		if fatal {
+			return err
+		}
 		tries--
 		if tries == 0 {
 			return errors.New("Backoff limit reached")

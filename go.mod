@@ -6,7 +6,7 @@ require (
 	github.com/algorand/go-algorand v0.0.0-20220312035750-88e8b96f53b9
 	github.com/algorand/go-algorand-sdk v1.13.0
 	github.com/algorand/go-codec/codec v1.1.7
-	github.com/shaj13/libcache v1.0.0
+	github.com/hashicorp/golang-lru v0.5.4
 	github.com/sirupsen/logrus v1.4.2
 	github.com/tidwall/jsonc v0.3.2
 )
