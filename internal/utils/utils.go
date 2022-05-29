@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/algorand/go-algorand/protocol"
 	"github.com/algorand/go-codec/codec"
@@ -86,4 +88,16 @@ func EncodeJson(obj interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("failed to encode object: %v", err)
 	}
 	return output, nil
+}
+
+func PrintableUTF8OrEmpty(in string) string {
+	// iterate throughout all the characters in the string to see if they are all printable.
+	// when range iterating on go strings, go decode each element as a utf8 rune.
+	for _, c := range in {
+		// is this a printable character, or invalid rune ?
+		if c == utf8.RuneError || !unicode.IsPrint(c) {
+			return ""
+		}
+	}
+	return in
 }
