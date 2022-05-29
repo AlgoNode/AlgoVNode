@@ -3,24 +3,50 @@ module github.com/algonode/algovnode
 go 1.18
 
 require (
-	github.com/algorand/go-algorand v0.0.0-20220312035750-88e8b96f53b9
-	github.com/algorand/go-algorand-sdk v1.13.0
-	github.com/algorand/go-codec/codec v1.1.7
+	github.com/algorand/go-algorand v0.0.0-20220527160615-923731671c13
+	github.com/algorand/go-algorand-sdk v1.15.0
+	github.com/algorand/go-codec/codec v1.1.8
+	github.com/algorand/indexer v0.0.0-20220526145540-7c19c7dd6ccd
 	github.com/hashicorp/golang-lru v0.5.4
-	github.com/sirupsen/logrus v1.4.2
+	github.com/sirupsen/logrus v1.8.1
 	github.com/tidwall/jsonc v0.3.2
 )
 
 require (
-	github.com/algorand/go-deadlock v0.2.1 // indirect
-	github.com/algorand/msgp v1.1.49 // indirect
+	github.com/algorand/falcon v0.0.0-20220502155100-9558ec1e8b01 // indirect
+	github.com/algorand/go-deadlock v0.2.2 // indirect
+	github.com/algorand/go-sumhash v1.0.0 // indirect
+	github.com/algorand/msgp v1.1.52 // indirect
+	github.com/algorand/oapi-codegen v1.3.7 // indirect
+	github.com/aws/aws-sdk-go v1.44.24 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/google/go-querystring v1.0.0 // indirect
+	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
+	github.com/getkin/kin-openapi v0.94.0 // indirect
+	github.com/ghodss/yaml v1.0.0 // indirect
+	github.com/go-openapi/jsonpointer v0.19.5 // indirect
+	github.com/go-openapi/swag v0.21.1 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/josharian/intern v1.0.0 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.1 // indirect
-	github.com/petermattis/goid v0.0.0-20180202154549-b0b1615b78e5 // indirect
+	github.com/labstack/echo/v4 v4.7.2 // indirect
+	github.com/labstack/gommon v0.3.1 // indirect
+	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mattn/go-colorable v0.1.12 // indirect
+	github.com/mattn/go-isatty v0.0.14 // indirect
+	github.com/mattn/go-sqlite3 v1.14.13 // indirect
+	github.com/olivere/elastic v6.2.37+incompatible // indirect
+	github.com/petermattis/goid v0.0.0-20220526132513-07eaf5d0b9f4 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/stretchr/testify v1.7.0 // indirect
-	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
-	golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c // indirect
-	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
+	github.com/stretchr/testify v1.7.1 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	github.com/valyala/fasttemplate v1.2.1 // indirect
+	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e // indirect
+	golang.org/x/net v0.0.0-20220526153639-5463443f8c37 // indirect
+	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
+	golang.org/x/text v0.3.7 // indirect
+	gopkg.in/sohlich/elogrus.v3 v3.0.0-20180410122755-1fa29e2f2009 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

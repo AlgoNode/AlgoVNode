@@ -385,11 +385,11 @@ func (node *Node) BlockSink(block *types.Block, blockRaw []byte) bool {
 	if node.gState.SetLatestRound(uint64(block.Round), node) {
 		//we won the race
 		bw := &blockcache.BlockWrap{
-			Bn:       uint64(block.Round),
-			Ts:       time.Now(),
-			Block:    block,
-			BlockRaw: blockRaw,
-			Src:      node.cfg.Id,
+			Round:        uint64(block.Round),
+			Ts:           time.Now(),
+			Block:        block,
+			BlockMsgPack: blockRaw,
+			Src:          node.cfg.Id,
 		}
 		node.gState.blockSink <- bw
 		return true

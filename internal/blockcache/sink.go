@@ -25,17 +25,19 @@ import (
 )
 
 type BlockWrap struct {
-	Bn       uint64
-	Block    *types.Block
-	BlockRaw []byte
-	Src      string
-	Ts       time.Time
+	Round         uint64
+	BlockMsgPack  []byte
+	Block         *types.Block
+	BlockJsonIdx  *string
+	BlockJsonNode *string
+	Src           string
+	CachedAt      time.Time
 }
 
 type BlockEntry struct {
-	B     *BlockWrap
-	bcast chan struct{}
-	round uint64
+	B       *BlockWrap
+	WaitFor chan struct{}
+	Round   uint64
 }
 
 type GlobalState struct {
@@ -52,19 +54,19 @@ func init() {
 	gState.archCache, _ = cache.New(8)
 }
 
-func (b *BlockWrap) cacheCachupBlock() {
+func (b *BlockWrap) cacheCatchupBlock() {
 	be := &BlockEntry{
-		B:     b,
-		bcast: make(chan struct{}),
-		round: uint64(b.Block.Round),
+		B:       b,
+		WaitFor: make(chan struct{}),
+		Round:   uint64(b.Block.Round),
 	}
-	if ok, _ := gState.catchupCache.ContainsOrAdd(be.round, be); ok {
+	if ok, _ := gState.catchupCache.ContainsOrAdd(be.Round, be); ok {
 		//already in the cache
-		if e, found := gState.catchupCache.Peek(be.round); found {
-			if e.(*BlockEntry).B == nil && e.(*BlockEntry).bcast != nil {
+		if e, found := gState.catchupCache.Peek(be.Round); found {
+			if e.(*BlockEntry).B == nil && e.(*BlockEntry).WaitFor != nil {
 				e.(*BlockEntry).B = be.B
 				//notify waiters
-				close(e.(*BlockEntry).bcast)
+				close(e.(*BlockEntry).WaitFor)
 			}
 		}
 	}
@@ -78,7 +80,7 @@ TheLoop:
 		case <-ctx.Done():
 			break TheLoop
 		case b := <-bs:
-			b.cacheCachupBlock()
+			b.cacheCatchupBlock()
 		}
 	}
 }
