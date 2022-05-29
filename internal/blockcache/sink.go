@@ -18,75 +18,47 @@ package blockcache
 import (
 	"context"
 	"sync"
-	"time"
 
-	"github.com/algorand/go-algorand-sdk/types"
+	"github.com/algonode/algovnode/internal/blockfetcher"
 	cache "github.com/hashicorp/golang-lru"
 )
 
-type BlockWrap struct {
-	Round         uint64
-	BlockMsgPack  []byte
-	Block         *types.Block
-	BlockJsonIdx  *string
-	BlockJsonNode *string
-	Src           string
-	CachedAt      time.Time
-}
-
-type BlockEntry struct {
-	B       *BlockWrap
-	WaitFor chan struct{}
-	Round   uint64
-}
+const (
+	CatchupSize = 1000
+	ArchSize    = 1000
+)
 
 type GlobalState struct {
 	sync.Mutex
-	catchupCache *cache.Cache
-	archCache    *cache.Cache
+	catchupCache *BlockCache
+	archCache    *BlockCache
 }
 
 var gState GlobalState
 
-func init() {
-	//never errs
-	gState.catchupCache, _ = cache.New(8)
-	gState.archCache, _ = cache.New(8)
-}
-
-func (b *BlockWrap) cacheCatchupBlock() {
-	be := &BlockEntry{
-		B:       b,
-		WaitFor: make(chan struct{}),
-		Round:   uint64(b.Block.Round),
-	}
-	if ok, _ := gState.catchupCache.ContainsOrAdd(be.Round, be); ok {
-		//already in the cache
-		if e, found := gState.catchupCache.Peek(be.Round); found {
-			if e.(*BlockEntry).B == nil && e.(*BlockEntry).WaitFor != nil {
-				e.(*BlockEntry).B = be.B
-				//notify waiters
-				close(e.(*BlockEntry).WaitFor)
-			}
-		}
-	}
-
-}
-
-func blockSinkProcessor(ctx context.Context, bs chan *BlockWrap) {
+func blockSinkProcessor(ctx context.Context, bs chan *blockfetcher.BlockWrap) {
 TheLoop:
 	for {
 		select {
 		case <-ctx.Done():
 			break TheLoop
 		case b := <-bs:
-			b.cacheCatchupBlock()
+			if gState.catchupCache.last != 0 || b.Round < gState.catchupCache.last-CatchupSize {
+				gState.catchupCache.addBlock(b)
+			} else {
+				gState.archCache.addBlock(b)
+			}
 		}
 	}
 }
 
-func StartBlockSink(ctx context.Context) chan *BlockWrap {
-	bs := make(chan *BlockWrap, 1000)
+func StartBlockSink(ctx context.Context) chan *blockfetcher.BlockWrap {
+	cc, _ := cache.New(CatchupSize)
+	gState.catchupCache = &BlockCache{c: cc, last: 0}
+	ca, _ := cache.New(ArchSize)
+	gState.archCache = &BlockCache{c: ca, last: 0}
+
+	bs := make(chan *blockfetcher.BlockWrap, gState.catchupCache.last)
 	go blockSinkProcessor(ctx, bs)
 	return bs
 }

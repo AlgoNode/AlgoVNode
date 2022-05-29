@@ -16,14 +16,21 @@ require (
 	github.com/algorand/go-deadlock v0.2.2 // indirect
 	github.com/algorand/go-sumhash v1.0.0 // indirect
 	github.com/algorand/msgp v1.1.52 // indirect
+	github.com/algorand/websocket v1.4.5 // indirect
 	github.com/aws/aws-sdk-go v1.44.24 // indirect
+	github.com/consensys/gnark-crypto v0.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
+	github.com/dchest/siphash v1.2.1 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/gorilla/context v1.1.1 // indirect
+	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-sqlite3 v1.14.13 // indirect
+	github.com/miekg/dns v1.1.27 // indirect
+	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/olivere/elastic v6.2.37+incompatible // indirect
 	github.com/petermattis/goid v0.0.0-20220526132513-07eaf5d0b9f4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

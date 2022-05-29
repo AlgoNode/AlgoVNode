@@ -17,7 +17,6 @@ package algod
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -25,13 +24,14 @@ import (
 	"time"
 
 	"github.com/algonode/algovnode/internal/blockcache"
+	"github.com/algonode/algovnode/internal/blockfetcher"
 	"github.com/algonode/algovnode/internal/config"
 	"github.com/algonode/algovnode/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/client/v2/common"
 	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
-	"github.com/algorand/go-algorand-sdk/encoding/msgpack"
-	"github.com/algorand/go-algorand-sdk/types"
+	"github.com/algorand/go-algorand/protocol"
+	"github.com/algorand/go-algorand/rpcs"
 	"github.com/sirupsen/logrus"
 )
 
@@ -74,59 +74,7 @@ type Node struct {
 	latestRound uint64
 	state       ANState
 	state_at    time.Time
-	gState      *GlobalState
-}
-
-type GlobalState struct {
-	sync.Mutex
-	fatalErr    chan error
-	blockSink   chan *blockcache.BlockWrap
-	latestRound uint64
-	lastSrc     *Node
-	lastAt      time.Time
-	genesis     string
-	nodes       []*Node
-	//TODO lruCache
-}
-
-func (gs *GlobalState) GetLatestRound() uint64 {
-	gs.Lock()
-	lr := gs.latestRound
-	gs.Unlock()
-	return lr
-}
-
-func (gs *GlobalState) SetLatestRound(lr uint64, node *Node) bool {
-	gs.Lock()
-	defer gs.Unlock()
-	if lr > gs.latestRound {
-		gs.latestRound = lr
-		gs.lastAt = time.Now()
-		gs.lastSrc = node
-		return true
-	}
-	return false
-}
-
-func (gs *GlobalState) EnsureGenesis(g string) error {
-	gs.Lock()
-	defer gs.Unlock()
-	if gs.genesis == "" {
-		gs.genesis = g
-		return nil
-	}
-	if gs.genesis == g {
-		return nil
-	}
-	return errors.New("Genesis mismatch")
-}
-
-func (gs *GlobalState) HandleFatal(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-	case err := <-gs.fatalErr:
-		logrus.WithError(err).Error("Quitting due to fatal error")
-	}
+	cluster     *NodeCluster
 }
 
 func (node *Node) UpdateWithStatus(nodeStatus *models.NodeStatus) bool {
@@ -144,7 +92,7 @@ func (node *Node) UpdateWithStatus(nodeStatus *models.NodeStatus) bool {
 	if nodeStatus.LastRound > node.latestRound {
 		node.latestRound = nodeStatus.LastRound
 	}
-	node.log.Debugf("lastRound is %d", node.latestRound)
+	//	node.log.Debugf("lastRound is %d", node.latestRound)
 	node.Unlock()
 	return true
 }
@@ -155,17 +103,17 @@ func (node *Node) UpdateStatus(ctx context.Context) bool {
 		ns, err := node.algodClient.Status().Do(actx)
 		if err != nil {
 			node.log.WithError(err).Warn("GetStatus")
-			return err
+			return false, err
 		}
 		nodeStatus = &ns
-		return nil
+		return false, nil
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 0)
 	if err != nil {
 		//Ctx got cancelled, exit silently
 		return false
 	}
 	if node.UpdateWithStatus(nodeStatus) {
-		node.gState.SetLatestRound(node.latestRound, node)
+		node.cluster.SetLatestRound(node.latestRound, node)
 		return true
 	}
 	return false
@@ -180,10 +128,10 @@ func (node *Node) Boot(ctx context.Context) bool {
 		g, err := node.algodClient.GetGenesis().Do(actx)
 		if err != nil {
 			node.log.WithError(err).Warn("GetGenesis")
-			return err
+			return false, err
 		}
 		genesis = g
-		return nil
+		return false, nil
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 0)
 	if err != nil {
 		//Ctx got cancelled, exit silently
@@ -191,37 +139,44 @@ func (node *Node) Boot(ctx context.Context) bool {
 	}
 
 	//Make sure all nodes have the same genesis
-	if err := node.gState.EnsureGenesis(genesis); err != nil {
+	if err := node.cluster.EnsureGenesis(genesis); err != nil {
 		//Singal fatal error
 		node.log.WithError(err).Error()
-		node.gState.fatalErr <- err
+		node.cluster.fatalErr <- err
 		return false
 	}
 	node.genesis = genesis
 
-	node.FetchBlockRaw(ctx, 0)
+	if node.FetchBlockRaw(ctx, 0) {
+		node.log.Infof("Node is archival")
+		node.catchup = false
+	}
 
 	return node.UpdateStatus(ctx)
 }
-func (node *Node) UpdateTTL(ms int64) {
+func (node *Node) UpdateTTL(us int64) {
 	node.Lock()
-	node.ttlEwma = node.ttlEwma*0.9 + float32(ms)*0.1
+	if node.ttlEwma < 0 {
+		node.ttlEwma = float32(us) / 1000.0
+	} else {
+		node.ttlEwma = node.ttlEwma*0.9 + float32(us)*0.1/1000.0
+	}
 	node.Unlock()
 }
 
 func (node *Node) UpdateStatusAfter(ctx context.Context) uint64 {
-	var nodeStatus *models.NodeStatus3
+	var nodeStatus *models.NodeStatus
 	var lr uint64 = 0
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		//skip ahead
-		lr = node.gState.GetLatestRound()
+		lr = node.cluster.GetLatestRound()
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
 			node.log.WithError(err).Warnf("StatusAfterBlock %d", lr)
-			return err
+			return false, err
 		}
 		nodeStatus = &ns
-		return nil
+		return false, nil
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
 	if err != nil {
 		node.log.WithError(err).Errorf("StatusAfterBlock %d", lr)
@@ -248,10 +203,11 @@ func isFatalAPIError(err error) bool {
 	if _, ok := err.(common.NotFound); ok {
 		return true
 	}
+	return false
 }
 
 func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
-	var block *types.Block
+	block := new(rpcs.EncodedBlockCert)
 	var rawBlock []byte
 	node.log.Infof("Fetching block %d", bn)
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
@@ -265,24 +221,23 @@ func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
 			node.log.WithError(err).Warnf("BlockRaw %d", bn)
 			return false, err
 		}
-		node.UpdateTTL(time.Since(start).Milliseconds())
-		var response models.BlockResponse
-		msgpack.CodecHandle.ErrorIfNoField = false
-		if err = msgpack.Decode(rb, &response); err != nil {
+		node.UpdateTTL(time.Since(start).Microseconds())
+
+		err = protocol.Decode(rb, block)
+		if err != nil {
 			node.log.WithError(err).Warn()
 			return false, err
 		}
-		block = &response.Block
+
 		rawBlock = rb
 		return false, nil
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
 	if err != nil {
 		node.log.WithError(err).Errorf("BlockRaw %d", bn)
-		//reboot
 		return false
 	}
 	if node.BlockSink(block, rawBlock) {
-		node.log.Infof("Block %d is now lastest", block.Round)
+		node.log.Infof("Block %d is now lastest", block.Block.BlockHeader.Round)
 	}
 	return true
 }
@@ -303,7 +258,7 @@ func (node *Node) Monitor(ctx context.Context) {
 			time.Sleep(time.Second)
 			continue
 		}
-		clr := node.gState.GetLatestRound()
+		clr := node.cluster.GetLatestRound()
 		if clr < lr+1 {
 			if !node.FetchBlockRaw(ctx, lr+1) {
 				//reboot
@@ -327,13 +282,13 @@ func (node *Node) MainLoop(ctx context.Context) {
 	}
 }
 
-func (gs *GlobalState) AddNode(ctx context.Context, cfg *config.ANode) error {
+func (gs *NodeCluster) AddNode(ctx context.Context, cfg *config.ANode) error {
 	node := &Node{
 		state:    AnsConfig,
 		state_at: time.Now(),
 		catchup:  true,
-		ttlEwma:  300,
-		gState:   gs,
+		ttlEwma:  -1,
+		cluster:  gs,
 		cfg:      cfg,
 		genesis:  "",
 	}
@@ -381,17 +336,15 @@ func copyHeader(dst, src http.Header) {
 	}
 }
 
-func (node *Node) BlockSink(block *types.Block, blockRaw []byte) bool {
-	if node.gState.SetLatestRound(uint64(block.Round), node) {
+func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool {
+	if node.cluster.SetLatestRound(uint64(block.Block.BlockHeader.Round), node) {
 		//we won the race
-		bw := &blockcache.BlockWrap{
-			Round:        uint64(block.Round),
-			Ts:           time.Now(),
-			Block:        block,
-			BlockMsgPack: blockRaw,
-			Src:          node.cfg.Id,
+		bw, err := blockfetcher.MakeBlockWrap(node.cfg.Id, block, blockRaw)
+		if err != nil {
+			node.log.WithError(err).Errorf("Error making blockWrap")
+			return false
 		}
-		node.gState.blockSink <- bw
+		node.cluster.blockSink <- bw
 		return true
 	}
 	return false
@@ -412,7 +365,7 @@ func (node *Node) SetState(state ANState, reason string) {
 
 func Main(ctx context.Context, cfg config.AlgoVNodeConfig) {
 	bs := blockcache.StartBlockSink(ctx)
-	gState := GlobalState{
+	cluster := NodeCluster{
 		genesis:     "",
 		latestRound: 0,
 		fatalErr:    make(chan error),
@@ -420,8 +373,8 @@ func Main(ctx context.Context, cfg config.AlgoVNodeConfig) {
 		nodes:       make([]*Node, 0),
 	}
 	for _, n := range cfg.Algod.Nodes {
-		gState.AddNode(ctx, n)
+		cluster.AddNode(ctx, n)
 	}
 	//TODO sink
-	gState.HandleFatal(ctx)
+	cluster.HandleFatal(ctx)
 }
