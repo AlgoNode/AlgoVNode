@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/blockfetcher"
 	"github.com/algonode/algovnode/internal/config"
 	"github.com/algonode/algovnode/internal/utils"
@@ -156,7 +155,7 @@ func (node *Node) Boot(ctx context.Context) bool {
 }
 func (node *Node) UpdateTTL(us int64) {
 	node.Lock()
-	if node.ttlEwma < 0 {
+	if node.ttlEwma > 99_999 {
 		node.ttlEwma = float32(us) / 1000.0
 	} else {
 		node.ttlEwma = node.ttlEwma*0.9 + float32(us)*0.1/1000.0
@@ -216,6 +215,7 @@ func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
 
 		if err != nil {
 			if isFatalAPIError(err) {
+				node.UpdateTTL(time.Since(start).Microseconds())
 				return true, err
 			}
 			node.log.WithError(err).Warnf("BlockRaw %d", bn)
@@ -236,9 +236,7 @@ func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
 		node.log.WithError(err).Errorf("BlockRaw %d", bn)
 		return false
 	}
-	if node.BlockSink(block, rawBlock) {
-		node.log.Infof("Block %d is now lastest", block.Block.BlockHeader.Round)
-	}
+	node.BlockSink(block, rawBlock)
 	return true
 }
 
@@ -287,7 +285,7 @@ func (gs *NodeCluster) AddNode(ctx context.Context, cfg *config.ANode) error {
 		state:    AnsConfig,
 		state_at: time.Now(),
 		catchup:  true,
-		ttlEwma:  -1,
+		ttlEwma:  100_000,
 		cluster:  gs,
 		cfg:      cfg,
 		genesis:  "",
@@ -345,6 +343,7 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 			return false
 		}
 		node.cluster.blockSink <- bw
+		node.log.Infof("Block %d is now lastest, sd:%d", block.Block.BlockHeader.Round, len(node.cluster.blockSink))
 		return true
 	}
 	return false
@@ -361,20 +360,4 @@ func (node *Node) SetState(state ANState, reason string) {
 	node.state = state
 	node.state_at = time.Now()
 	node.log.WithFields(logrus.Fields{"oldState": oldState.String(), "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
-}
-
-func Main(ctx context.Context, cfg config.AlgoVNodeConfig) {
-	bs := blockcache.StartBlockSink(ctx)
-	cluster := NodeCluster{
-		genesis:     "",
-		latestRound: 0,
-		fatalErr:    make(chan error),
-		blockSink:   bs,
-		nodes:       make([]*Node, 0),
-	}
-	for _, n := range cfg.Algod.Nodes {
-		cluster.AddNode(ctx, n)
-	}
-	//TODO sink
-	cluster.HandleFatal(ctx)
 }

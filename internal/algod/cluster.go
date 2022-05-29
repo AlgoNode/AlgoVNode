@@ -21,7 +21,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/blockfetcher"
+	"github.com/algonode/algovnode/internal/config"
 	"github.com/sirupsen/logrus"
 )
 
@@ -74,4 +76,35 @@ func (gs *NodeCluster) HandleFatal(ctx context.Context) {
 	case err := <-gs.fatalErr:
 		logrus.WithError(err).Error("Quitting due to fatal error")
 	}
+}
+
+func (gs *NodeCluster) GetBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
+	if round > gs.latestRound {
+
+	} else {
+		if round < gs.latestRound-blockcache.CatchupSize+1 {
+
+		} else {
+
+		}
+	}
+	return nil, nil
+}
+
+func ClusterMain(ctx context.Context, cfg config.AlgoVNodeConfig) {
+	cluster := NodeCluster{
+		genesis:     "",
+		latestRound: 0,
+		fatalErr:    make(chan error),
+		blockSink:   nil,
+		nodes:       make([]*Node, 0),
+	}
+
+	cluster.blockSink = blockcache.StartBlockSink(ctx, cluster)
+
+	for _, n := range cfg.Algod.Nodes {
+		cluster.AddNode(ctx, n)
+	}
+	//TODO sink
+	cluster.HandleFatal(ctx)
 }

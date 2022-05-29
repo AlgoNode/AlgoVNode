@@ -28,13 +28,13 @@ const (
 	ArchSize    = 1000
 )
 
-type GlobalState struct {
+type GlobalCaches struct {
 	sync.Mutex
 	catchupCache *BlockCache
 	archCache    *BlockCache
 }
 
-var gState GlobalState
+var gState GlobalCaches
 
 func blockSinkProcessor(ctx context.Context, bs chan *blockfetcher.BlockWrap) {
 TheLoop:
@@ -52,13 +52,13 @@ TheLoop:
 	}
 }
 
-func StartBlockSink(ctx context.Context) chan *blockfetcher.BlockWrap {
+func StartBlockSink(ctx context.Context, bf blockfetcher.BlockFetcher) chan *blockfetcher.BlockWrap {
 	cc, _ := cache.New(CatchupSize)
-	gState.catchupCache = &BlockCache{c: cc, last: 0}
+	gState.catchupCache = &BlockCache{c: cc, last: 0, bf: bf}
 	ca, _ := cache.New(ArchSize)
-	gState.archCache = &BlockCache{c: ca, last: 0}
+	gState.archCache = &BlockCache{c: ca, last: 0, bf: bf}
 
-	bs := make(chan *blockfetcher.BlockWrap, gState.catchupCache.last)
+	bs := make(chan *blockfetcher.BlockWrap, CatchupSize)
 	go blockSinkProcessor(ctx, bs)
 	return bs
 }

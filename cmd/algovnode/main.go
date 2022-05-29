@@ -55,6 +55,6 @@ func main() {
 		}()
 	}
 
-	algod.Main(ctx, cfg)
+	algod.ClusterMain(ctx, cfg)
 
 }

@@ -13,7 +13,7 @@ type BlockEntry struct {
 
 type BlockCache struct {
 	c    *cache.Cache
-	bf   *blockfetcher.BlockFetcher
+	bf   blockfetcher.BlockFetcher
 	last uint64
 }
 
