@@ -24,6 +24,7 @@ import (
 	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/config"
+	"github.com/algonode/algovnode/internal/httpsrv"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -60,5 +61,7 @@ func main() {
 	cluster := algod.NewCluster(ctx, cache, cfg)
 	cache.SetBlockFetcher(cluster)
 
+	srv := httpsrv.New(ctx, cf, cache, cluster, cfg)
 	cluster.WaitForFatal(ctx)
+
 }
