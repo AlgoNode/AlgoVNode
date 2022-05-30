@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/algonode/algovnode/internal/blockcache"
-	"github.com/algonode/algovnode/internal/blockfetcher"
 	"github.com/algonode/algovnode/internal/config"
 	"github.com/sirupsen/logrus"
 )
@@ -38,6 +37,7 @@ type NodeCluster struct {
 	nodes       []*Node
 }
 
+//GetLatestRound returns latest round available on the cluster
 func (gs *NodeCluster) GetLatestRound() uint64 {
 	gs.Lock()
 	lr := gs.latestRound
@@ -45,6 +45,7 @@ func (gs *NodeCluster) GetLatestRound() uint64 {
 	return lr
 }
 
+//SetLatestRound sets latest round available on the cluster
 func (gs *NodeCluster) SetLatestRound(lr uint64, node *Node) bool {
 	gs.Lock()
 	defer gs.Unlock()
@@ -57,6 +58,7 @@ func (gs *NodeCluster) SetLatestRound(lr uint64, node *Node) bool {
 	return false
 }
 
+//EnsureGenesis returns error if supplied genesis hash does not match cluster genesis
 func (gs *NodeCluster) EnsureGenesis(g string) error {
 	gs.Lock()
 	defer gs.Unlock()
@@ -70,7 +72,8 @@ func (gs *NodeCluster) EnsureGenesis(g string) error {
 	return errors.New("genesis mismatch")
 }
 
-func (gs *NodeCluster) HandleFatal(ctx context.Context) {
+//WaitForFatal blocks until cluster receives a fatal error on error channel
+func (gs *NodeCluster) WaitForFatal(ctx context.Context) {
 	select {
 	case <-ctx.Done():
 	case err := <-gs.fatalErr:
@@ -78,19 +81,59 @@ func (gs *NodeCluster) HandleFatal(ctx context.Context) {
 	}
 }
 
-func (gs *NodeCluster) GetBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
+//LoadBlock does
+func (gs *NodeCluster) LoadBlock(ctx context.Context, round uint64) {
+	//TODO
+	//handle future rounds
+	//handle parallel limit
 	if round > gs.latestRound {
-
+		gs.fatalErr <- errors.New("Tried to load future block")
 	} else {
-		if round < gs.latestRound-blockcache.CatchupSize+1 {
-
+		if round < gs.latestRound-blockcache.CatchupSize+2 {
+			fetches := 0
+			for _, n := range gs.nodes {
+				//skip for some node states
+				if n.catchup && n.state != AnsFailed {
+					//try all catchup in parallel
+					go n.FetchBlockRaw(ctx, round)
+					fetches++
+				}
+			}
+			if fetches == 0 {
+				for _, n := range gs.nodes {
+					//skip for some node states
+					if !n.catchup && n.state != AnsFailed {
+						//try all archive in parallel
+						go n.FetchBlockRaw(ctx, round)
+						fetches++
+					}
+				}
+			}
+			if fetches == 0 {
+				logrus.Errorf("All nodes unavailable to load block %d", round)
+			} else {
+				logrus.Debugf("Fetching block %d on %d nodes", round, fetches)
+			}
 		} else {
-
+			fetches := 0
+			for _, n := range gs.nodes {
+				//skip for some node states
+				if !n.catchup && n.state != AnsFailed {
+					//try all archive in parallel
+					n.FetchBlockRaw(ctx, round)
+					fetches++
+				}
+			}
+			if fetches == 0 {
+				logrus.Errorf("All nodes unavailable to load block %d", round)
+			} else {
+				logrus.Debugf("Fetching block %d on %d nodes", round, fetches)
+			}
 		}
 	}
-	return nil, nil
 }
 
+//NewCluster instantiates all configured nodes and returns new node cluster object
 func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig) *NodeCluster {
 	cluster := &NodeCluster{
 		genesis:     "",

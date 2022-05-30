@@ -34,6 +34,14 @@ func proxyStatus(proxyStatuses *[]int, status int) bool {
 	return false
 }
 
+func copyHeader(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
+	}
+}
+
 func (node *Node) ProxyHTTP(wr http.ResponseWriter, req *http.Request, proxyStatuses *[]int) (bool, int, error) {
 	node.log.WithFields(logrus.Fields{"method": req.Method, "url": req.URL}).Info()
 	req.RequestURI = ""

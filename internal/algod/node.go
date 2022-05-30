@@ -326,14 +326,6 @@ type NodeStatus struct {
 	LastCP    string
 }
 
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
-}
-
 func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool {
 	if node.cluster.SetLatestRound(uint64(block.Block.BlockHeader.Round), node) {
 		//we won the race

@@ -17,6 +17,7 @@ package blockcache
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/algonode/algovnode/internal/blockfetcher"
@@ -54,6 +55,8 @@ func (ubc *UnifiedBlockCache) getCache(round uint64) *BlockCache {
 
 //addBlock adds a wrapped block to the unified block cache
 func (ubc *UnifiedBlockCache) addBlock(b *blockfetcher.BlockWrap) {
+	ubc.Lock()
+	defer ubc.Unlock()
 	ubc.getCache(b.Round).addBlock(b)
 }
 
@@ -64,24 +67,24 @@ func (ubc *UnifiedBlockCache) promiseBlock(round uint64) *BlockEntry {
 //getBlock reads cached block or blocks till one is fetched from the cluster
 func (ubc *UnifiedBlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
 	ubc.Lock()
-	if bw, ok := ubc.catchupCache.c.Get(round); ok {
+	if bw, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
 		ubc.Unlock()
-		return bw.(*blockfetcher.BlockWrap), nil
+		return bw, nil
 	}
-	if bw, ok := ubc.archCache.c.Get(round); ok {
+	if bw, _ := ubc.archCache.getBlock(ctx, round); bw != nil {
 		ubc.Unlock()
-		return bw.(*blockfetcher.BlockWrap), nil
+		return bw, nil
 	}
 	ubc.promiseBlock(round)
 	ubc.Unlock()
-	// select {
-	// case <-ctx.Done():
-	// 	return nil, ctx.Err()
-	// case <-promise.WaitFor:
-	// 	return promise.B, nil
-	// }
-
-	return ubc.bf.GetBlock(ctx, round)
+	ubc.bf.LoadBlock(ctx, round)
+	if bw, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
+		return bw, nil
+	}
+	if bw, _ := ubc.archCache.getBlock(ctx, round); bw != nil {
+		return bw, nil
+	}
+	return nil, fmt.Errorf("error getting block %d", round)
 }
 
 //SetBlockFetcher sets a block fetching interface for handling cache misses

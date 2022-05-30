@@ -1,6 +1,8 @@
 package blockcache
 
 import (
+	"context"
+
 	"github.com/algonode/algovnode/internal/blockfetcher"
 	cache "github.com/hashicorp/golang-lru"
 )
@@ -46,4 +48,27 @@ func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {
 	if bc.last < b.Round {
 		bc.last = b.Round
 	}
+}
+
+func (bc *BlockCache) tryGetBlock(round uint64) (*blockfetcher.BlockWrap, bool) {
+	if be, ok := bc.c.Get(round); ok {
+		bw := be.(*BlockEntry).B
+		return bw, true
+	}
+	return nil, false
+}
+
+func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, bool) {
+	if item, ok := bc.c.Get(round); ok {
+		be := item.(*BlockEntry)
+		if be.B != nil {
+			return be.B, true
+		}
+		select {
+		case <-be.WaitFor:
+		case <-ctx.Done():
+		}
+		return be.B, true
+	}
+	return nil, false
 }

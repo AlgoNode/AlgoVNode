@@ -59,5 +59,6 @@ func main() {
 	cache := blockcache.New(ctx)
 	cluster := algod.NewCluster(ctx, cache, cfg)
 	cache.SetBlockFetcher(cluster)
-	cluster.HandleFatal(ctx)
+
+	cluster.WaitForFatal(ctx)
 }
