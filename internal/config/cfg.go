@@ -31,17 +31,32 @@ type ANode struct {
 	ReqLimit int32  `json:"reqlimit"`
 }
 
+type Virtual struct {
+	Listen string `json:"listen"`
+	Cache  int    `json:"cache"`
+	Token  string `json:"token"`
+}
+
 type AConfig struct {
-	Nodes []*ANode `json:"nodes"`
+	Nodes   []*ANode `json:"nodes"`
+	Virtual *Virtual `json:"virtual"`
 }
 
 type AlgoVNodeConfig struct {
 	Algod *AConfig `json:"algod"`
 }
 
-var defaultConfig = AlgoVNodeConfig{}
+var defaultConfig = AlgoVNodeConfig{
+	Algod: &AConfig{
+		Virtual: &Virtual{
+			Listen: ":18090",
+			Cache:  1000,
+			Token:  "",
+		},
+	},
+}
 
-// loadConfig loads the configuration from the specified file, merging into the default configuration.
+// LoadConfig loads the configuration from the specified file, merging into the default configuration.
 func LoadConfig() (cfg AlgoVNodeConfig, err error) {
 	flag.Parse()
 	cfg = defaultConfig
