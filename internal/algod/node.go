@@ -342,8 +342,12 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 			node.log.WithError(err).Errorf("Error making blockWrap")
 			return false
 		}
-		node.cluster.blockSink <- bw
-		node.log.Infof("Block %d is now lastest, sd:%d", block.Block.BlockHeader.Round, len(node.cluster.blockSink))
+		if node.cluster.ucache != nil {
+			node.cluster.ucache.Sink <- bw
+			node.log.Infof("Block %d is now lastest, sd:%d", block.Block.BlockHeader.Round, len(node.cluster.ucache.Sink))
+		} else {
+			node.log.Errorf("Block %d discarded, no sink", block.Block.BlockHeader.Round)
+		}
 		return true
 	}
 	return false

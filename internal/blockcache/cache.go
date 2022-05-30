@@ -13,8 +13,17 @@ type BlockEntry struct {
 
 type BlockCache struct {
 	c    *cache.Cache
-	bf   blockfetcher.BlockFetcher
 	last uint64
+}
+
+func (bc *BlockCache) promiseBlock(round uint64) *BlockEntry {
+	be := &BlockEntry{
+		B:       nil,
+		WaitFor: make(chan struct{}),
+		Round:   uint64(round),
+	}
+	bc.c.Add(be.Round, be)
+	return be
 }
 
 func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {

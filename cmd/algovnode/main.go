@@ -22,6 +22,7 @@ import (
 	"syscall"
 
 	"github.com/algonode/algovnode/internal/algod"
+	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -55,6 +56,8 @@ func main() {
 		}()
 	}
 
-	algod.ClusterMain(ctx, cfg)
-
+	cache := blockcache.New(ctx)
+	cluster := algod.NewCluster(ctx, cache, cfg)
+	cache.SetBlockFetcher(cluster)
+	cluster.HandleFatal(ctx)
 }

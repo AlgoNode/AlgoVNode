@@ -30,7 +30,7 @@ import (
 type NodeCluster struct {
 	sync.Mutex
 	fatalErr    chan error
-	blockSink   chan *blockfetcher.BlockWrap
+	ucache      *blockcache.UnifiedBlockCache
 	latestRound uint64
 	lastSrc     *Node
 	lastAt      time.Time
@@ -91,20 +91,18 @@ func (gs *NodeCluster) GetBlock(ctx context.Context, round uint64) (*blockfetche
 	return nil, nil
 }
 
-func ClusterMain(ctx context.Context, cfg config.AlgoVNodeConfig) {
-	cluster := NodeCluster{
+func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig) *NodeCluster {
+	cluster := &NodeCluster{
 		genesis:     "",
 		latestRound: 0,
 		fatalErr:    make(chan error),
-		blockSink:   nil,
 		nodes:       make([]*Node, 0),
+		ucache:      ucache,
 	}
-
-	cluster.blockSink = blockcache.StartBlockSink(ctx, cluster)
 
 	for _, n := range cfg.Algod.Nodes {
 		cluster.AddNode(ctx, n)
 	}
-	//TODO sink
-	cluster.HandleFatal(ctx)
+	return cluster
+
 }

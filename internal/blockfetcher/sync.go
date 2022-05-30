@@ -1,6 +1,7 @@
 package blockfetcher
 
 import (
+	"context"
 	"time"
 
 	"github.com/algonode/algovnode/internal/utils"
@@ -18,7 +19,7 @@ type BlockWrap struct {
 }
 
 type BlockFetcher interface {
-	GetBlock(round uint64) (*BlockWrap, error)
+	GetBlock(ctx context.Context, round uint64) (*BlockWrap, error)
 }
 
 func MakeBlockWrap(src string, block *rpcs.EncodedBlockCert, blockRaw []byte) (*BlockWrap, error) {
