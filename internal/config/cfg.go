@@ -44,11 +44,12 @@ type HttpsCfg struct {
 }
 
 type VirtCfg struct {
-	Nodes []*NodeCfg `json:"nodes"`
-	Http  *HttpCfg   `json:"http"`
-	Https *HttpsCfg  `json:"https"`
-	Cache int        `json:"cache"`
-	Token string     `json:"token"`
+	Nodes     []*NodeCfg `json:"nodes"`
+	Http      *HttpCfg   `json:"http"`
+	Https     *HttpsCfg  `json:"https"`
+	Cache     int        `json:"cache"`
+	RateLimit int        `json:"ratelimit"`
+	Tokens    []string   `json:"tokens"`
 }
 
 type AlgoVNodeConfig struct {
@@ -62,8 +63,8 @@ var defaultConfig = AlgoVNodeConfig{
 			Enabled: true,
 			H2C:     true,
 		},
-		Cache: 1000,
-		Token: "",
+		Cache:  1000,
+		Tokens: make([]string, 0),
 	},
 }
 

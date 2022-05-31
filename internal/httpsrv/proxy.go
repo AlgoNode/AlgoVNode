@@ -16,22 +16,38 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-type defaultHandler struct {
-	ucache  *blockcache.UnifiedBlockCache
-	cluster *algod.NodeCluster
-}
+// type defaultHandler struct {
+
+// }
 
 func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg config.AlgoVNodeConfig, log *logrus.Logger) {
 	e := echo.New()
 
 	e.Use(MakeLogger(log))
+	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
-	if len(cfg.Virtual.Http.Token) > 0 {
-		e.Use(MakeAuth("X-Indexer-API-Token", []string{cfg.Virtual.Http.Token}))
+	//TODO make this configurable
+	//e.Use(middleware.Gzip())
+
+	//TODO Ratelimiting
+	// if cfg.Virtual.RateLimit > 0 {
+	// 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(cfg.Virtual.RateLimit)))
+	// }
+
+	middlewares := make([]echo.MiddlewareFunc, 0)
+	if len(cfg.Virtual.Tokens) > 0 {
+		middlewares = append(middlewares, MakeAuth("X-Indexer-API-Token", cfg.Virtual.Tokens))
 	}
 
-	e.GET("/", proxyDefault)
+	api := ServerImplementation{
+		log:     log,
+		ucache:  cache,
+		cluster: cluster,
+	}
+
+	RegisterHandlersAuth(e, &api, middlewares...)
+	RegisterHandlersNoAuth(e, &api)
 
 	getctx := func(l net.Listener) context.Context {
 		return ctx
@@ -49,8 +65,15 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 		WriteTimeout:   time.Second * 15,
 		MaxHeaderBytes: 1 << 20,
 		BaseContext:    getctx,
-		Handler:        h2c.NewHandler(e, h2s),
+		Handler:        e,
 	}
+
+	if cfg.Virtual.Http.H2C {
+		s.Handler = h2c.NewHandler(e, h2s)
+	}
+
+	//TODO:
+	//handle TLS
 
 	go func() {
 		if err := s.ListenAndServe(); err != http.ErrServerClosed {

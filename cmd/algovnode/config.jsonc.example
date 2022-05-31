@@ -1,7 +1,7 @@
 {
   "virtual": {
     //token for algod API, can use "" for no token
-    "token": "7a9f8dfa115d4d7a7deb9dd304800c144d791ebb56156165d50603171178876d",
+    "token": "mut6xvyq9gru6rcxurmazx5r5exkg3ehf2wtatfxgjc9e6hn5z56339zzt4utmmj",
 
     //number of blocks to keep in RAM
     "cache": 1000,
