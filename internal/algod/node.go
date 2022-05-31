@@ -63,7 +63,7 @@ func (s ANState) String() string {
 
 type Node struct {
 	sync.Mutex
-	cfg         *config.ANode
+	cfg         *config.NodeCfg
 	log         *logrus.Entry
 	httpClient  *http.Client
 	algodClient *algod.Client
@@ -280,7 +280,7 @@ func (node *Node) MainLoop(ctx context.Context) {
 	}
 }
 
-func (gs *NodeCluster) AddNode(ctx context.Context, cfg *config.ANode) error {
+func (gs *NodeCluster) AddNode(ctx context.Context, cfg *config.NodeCfg) error {
 	node := &Node{
 		state:    AnsConfig,
 		state_at: time.Now(),

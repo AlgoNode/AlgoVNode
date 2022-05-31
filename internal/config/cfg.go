@@ -24,35 +24,46 @@ import (
 
 var cfgFile = flag.String("f", "config.jsonc", "config file")
 
-type ANode struct {
+type NodeCfg struct {
 	Address  string `json:"address"`
 	Token    string `json:"token"`
 	Id       string `json:"id"`
 	ReqLimit int32  `json:"reqlimit"`
 }
 
-type Virtual struct {
-	Listen string `json:"listen"`
-	Cache  int    `json:"cache"`
-	Token  string `json:"token"`
+type HttpCfg struct {
+	Listen    string `json:"listen"`
+	CertDir   string `json:"certDir"`
+	Autocerts bool   `json:"autocerts"`
+	Enabled   bool   `json:"enabled"`
+	H2C       bool   `json:"h2c"`
+}
+type HttpsCfg struct {
+	Listen  string `json:"listen"`
+	Enabled bool   `json:"enabled"`
 }
 
-type AConfig struct {
-	Nodes   []*ANode `json:"nodes"`
-	Virtual *Virtual `json:"virtual"`
+type VirtCfg struct {
+	Nodes []*NodeCfg `json:"nodes"`
+	Http  *HttpCfg   `json:"http"`
+	Https *HttpsCfg  `json:"https"`
+	Cache int        `json:"cache"`
+	Token string     `json:"token"`
 }
 
 type AlgoVNodeConfig struct {
-	Algod *AConfig `json:"algod"`
+	Virtual *VirtCfg `json:"virtual"`
 }
 
 var defaultConfig = AlgoVNodeConfig{
-	Algod: &AConfig{
-		Virtual: &Virtual{
-			Listen: ":18090",
-			Cache:  1000,
-			Token:  "",
+	Virtual: &VirtCfg{
+		Http: &HttpCfg{
+			Listen:  ":18090",
+			Enabled: true,
+			H2C:     true,
 		},
+		Cache: 1000,
+		Token: "",
 	},
 }
 
@@ -62,11 +73,11 @@ func LoadConfig() (cfg AlgoVNodeConfig, err error) {
 	cfg = defaultConfig
 	err = utils.LoadJSONCFromFile(*cfgFile, &cfg)
 
-	if cfg.Algod == nil {
-		return cfg, errors.New("Missing algod config")
+	if cfg.Virtual == nil {
+		return cfg, errors.New("missing algod config")
 	}
-	if len(cfg.Algod.Nodes) == 0 {
-		return cfg, errors.New("Configure at least one node")
+	if len(cfg.Virtual.Nodes) == 0 {
+		return cfg, errors.New("configure at least one node")
 	}
 	return cfg, err
 }

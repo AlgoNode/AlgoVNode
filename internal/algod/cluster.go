@@ -143,7 +143,7 @@ func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg c
 		ucache:      ucache,
 	}
 
-	for _, n := range cfg.Algod.Nodes {
+	for _, n := range cfg.Virtual.Nodes {
 		cluster.AddNode(ctx, n)
 	}
 	return cluster
