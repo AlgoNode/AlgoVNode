@@ -1,19 +1,59 @@
 {
-  // archival or catchup Algorand node config
-  // setup serveral nodes to fetch from the fastest one or failover
-  "algod": {
+  "virtual": {
+    //token for algod API, can use "" for no token
+    "token": "7a9f8dfa115d4d7a7deb9dd304800c144d791ebb56156165d50603171178876d",
+
+    //number of blocks to keep in RAM
+    "cache": 1000,
+
+    //http endpoint definition
+    "http": {
+      "enabled": true,
+      "listen": ":18090",
+      //h2c enabled cleartext HTTP/2 
+      "h2c": true
+    },
+
+    //https endpoint with auto let's encrypt SSL
+    "https": {
+      "enabled": false,
+      "certDir": "./ssl",
+      "autocerts": true,
+      "domain": "dev.mindapp.pl"
+    },
+
+    //DO NOT CHANGE
+    "catchupTopics": {
+      "betanet": "https://algorand-catchpoints.s3.us-east-2.amazonaws.com/channel/betanet/latest.catchpoint",
+      "testnet": "https://algorand-catchpoints.s3.us-east-2.amazonaws.com/channel/testnet/latest.catchpoint",
+      "mainnet": "https://algorand-catchpoints.s3.us-east-2.amazonaws.com/channel/mainnet/latest.catchpoint"
+    },
+
+    //use gossip network for indexer block prefetch
+    "gossip": true,
+
+    //notification channels
+    "notifications": {
+      //"email" : "mon@algonode.xyz",
+      //"slack" : "",
+      //"discord" : ""
+    },
+
+    //list of nodes (catchup and archive) and optional tokens
+    //virtual node will detect nodes' type and magically stream new blocks from / route requests to them
+    //forceCatchup makes sure the node is running in catchup mode, needs adminToken
     "nodes": [
-      {
-        "id": "private-node",
-        "address": "http://localhost:8180",
-        "token": "..."
-      },
       {
         "id": "AlgoNode",
         "address": "http://mainnet-api.algonode.network",
-      }
-
+      },
+      {
+        "id": "node-local1",
+        "address": "http://192.168.1.210:8180",
+        "token": "",
+        "adminToken": "",
+        "forceCatchup": true
+      },
     ]
-  },
-
+  }
 }
