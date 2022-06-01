@@ -20,10 +20,10 @@ import (
 
 // }
 
-func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg config.AlgoVNodeConfig, log *logrus.Logger) {
+func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg config.AlgoVNodeConfig, log *logrus.Entry) *http.Server {
 	e := echo.New()
 
-	e.Use(MakeLogger(log))
+	e.Use(MakeLogger(log.Logger))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
@@ -41,7 +41,7 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 	}
 
 	api := ServerImplementation{
-		log:     log,
+		log:     log.Logger,
 		ucache:  cache,
 		cluster: cluster,
 	}
@@ -81,5 +81,7 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 		}
 		cancel()
 	}()
+
+	return s
 
 }

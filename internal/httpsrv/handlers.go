@@ -18,6 +18,7 @@ func (si *ServerImplementation) waitHandler(c echo.Context) error {
 }
 
 func (si *ServerImplementation) defaultHandler(c echo.Context) error {
+	//si.cluster.
 	return nil
 }
 

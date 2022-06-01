@@ -41,6 +41,7 @@ const (
 	AnsBooting
 	AnsSyncing
 	AnsSynced
+	AnsFailing
 	AnsFailed
 )
 
@@ -54,6 +55,8 @@ func (s ANState) String() string {
 		return "Synced"
 	case AnsConfig:
 		return "Config"
+	case AnsFailing:
+		return "Failing"
 	case AnsFailed:
 		return "Failed"
 	default:
@@ -68,12 +71,19 @@ type Node struct {
 	httpClient  *http.Client
 	algodClient *algod.Client
 	genesis     string
-	catchup     bool
+	Catchup     bool
 	ttlEwma     float32
 	latestRound uint64
 	state       ANState
 	state_at    time.Time
 	cluster     *NodeCluster
+}
+
+func (node *Node) Synced() bool {
+	//todo atomic
+	node.Lock()
+	defer node.Unlock()
+	return node.state == AnsSynced
 }
 
 func (node *Node) UpdateWithStatus(nodeStatus *models.NodeStatus) bool {
@@ -102,6 +112,7 @@ func (node *Node) UpdateStatus(ctx context.Context) bool {
 		ns, err := node.algodClient.Status().Do(actx)
 		if err != nil {
 			node.log.WithError(err).Warn("GetStatus")
+			node.SetState(AnsFailing, err.Error())
 			return false, err
 		}
 		nodeStatus = &ns
@@ -148,7 +159,7 @@ func (node *Node) Boot(ctx context.Context) bool {
 
 	if node.FetchBlockRaw(ctx, 0) {
 		node.log.Infof("Node is archival")
-		node.catchup = false
+		node.Catchup = false
 	}
 
 	return node.UpdateStatus(ctx)
@@ -247,7 +258,9 @@ func (node *Node) Monitor(ctx context.Context) {
 		lr := node.UpdateStatusAfter(ctx)
 		if lr == 0 {
 			//reboot
-			node.log.Errorf("Rebooting node due to issue with UpdateStatusAfter")
+			if ctx.Err() == nil {
+				node.log.Errorf("Rebooting node due to issue with UpdateStatusAfter")
+			}
 			break
 		}
 
@@ -260,7 +273,9 @@ func (node *Node) Monitor(ctx context.Context) {
 		if clr < lr+1 {
 			if !node.FetchBlockRaw(ctx, lr+1) {
 				//reboot
-				node.log.Errorf("Rebooting node due to issue with Fetch Block")
+				if ctx.Err() == nil {
+					node.log.Errorf("Rebooting node due to issue with Fetch Block")
+				}
 				break
 			}
 		} else {
@@ -278,21 +293,6 @@ func (node *Node) MainLoop(ctx context.Context) {
 		node.Monitor(ctx)
 		time.Sleep(time.Second)
 	}
-}
-
-func (gs *NodeCluster) AddNode(ctx context.Context, cfg *config.NodeCfg) error {
-	node := &Node{
-		state:    AnsConfig,
-		state_at: time.Now(),
-		catchup:  true,
-		ttlEwma:  100_000,
-		cluster:  gs,
-		cfg:      cfg,
-		genesis:  "",
-	}
-	node.log = logrus.WithFields(logrus.Fields{"nodeId": cfg.Id, "state": &node.state, "ttlMs": &node.ttlEwma})
-	gs.nodes = append(gs.nodes, node)
-	return node.Start(ctx)
 }
 
 func (node *Node) Start(ctx context.Context) error {
@@ -355,5 +355,6 @@ func (node *Node) SetState(state ANState, reason string) {
 	oldStateAt := node.state_at
 	node.state = state
 	node.state_at = time.Now()
+	node.cluster.StateUpdate()
 	node.log.WithFields(logrus.Fields{"oldState": oldState.String(), "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
 }

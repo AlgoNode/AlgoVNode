@@ -20,21 +20,23 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/config"
 	"github.com/algonode/algovnode/internal/httpsrv"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
-	log.SetFormatter(&log.JSONFormatter{})
-	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
+	logrus.SetFormatter(&logrus.JSONFormatter{})
+	logrus.SetOutput(os.Stdout)
+	logrus.SetLevel(logrus.DebugLevel)
 }
 
 func main() {
+	log := logrus.WithFields(logrus.Fields{})
 
 	//load config
 	cfg, err := config.LoadConfig()
@@ -58,10 +60,15 @@ func main() {
 	}
 
 	cache := blockcache.New(ctx)
-	cluster := algod.NewCluster(ctx, cache, cfg)
+
+	cluster := algod.NewCluster(ctx, cache, cfg, log)
 	cache.SetBlockFetcher(cluster)
 
-	srv := httpsrv.New(ctx, cf, cache, cluster, cfg)
+	srv := httpsrv.New(ctx, cf, cache, cluster, cfg, log)
 	cluster.WaitForFatal(ctx)
+
+	dctx, cf2 := context.WithTimeout(context.Background(), time.Second*2)
+	srv.Shutdown(dctx)
+	cf2()
 
 }
