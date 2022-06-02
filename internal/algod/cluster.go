@@ -18,6 +18,7 @@ package algod
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
@@ -86,8 +87,12 @@ func (gs *NodeCluster) WaitForFatal(ctx context.Context) {
 }
 
 //GetSyncNodesByTTL returns list of synced nodes ordered by status response time
-func (gs *NodeCluster) GetSyncedNodesByTTL() []*Node {
+func (gs *NodeCluster) GetCatchupSyncedNodesByTTL() []*Node {
 	return gs.catchupNodes
+}
+
+func (gs *NodeCluster) GetArchSyncedNodesByTTL() []*Node {
+	return gs.archNodes
 }
 
 func (gs *NodeCluster) StateUpdate() {
@@ -108,7 +113,12 @@ func (gs *NodeCluster) updateNodeLists() {
 			}
 		}
 	}
-
+	sort.SliceStable(catchupNodes, func(i, j int) bool {
+		return catchupNodes[i].ttlEwma < catchupNodes[j].ttlEwma
+	})
+	sort.SliceStable(archNodes, func(i, j int) bool {
+		return archNodes[i].ttlEwma < archNodes[j].ttlEwma
+	})
 	gs.archNodes = archNodes
 	gs.catchupNodes = catchupNodes
 }

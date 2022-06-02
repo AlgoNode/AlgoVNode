@@ -17,8 +17,16 @@ func (si *ServerImplementation) waitHandler(c echo.Context) error {
 	return nil
 }
 
+var proxy404 = []int{200, 204, 404}
+var proxy200 = []int{200, 204}
+
 func (si *ServerImplementation) defaultHandler(c echo.Context) error {
-	//si.cluster.
+	for _, n := range si.cluster.GetCatchupSyncedNodesByTTL() {
+		//tctx := context.WithTimeout(c.Request().Context(), time.Second * 3)
+		//req, err := http.NewRequestWithContext()
+		//(tctx, , "https://api.myip.com", nil)
+		n.ProxyHTTP(c.Response().Writer, c.Request(), proxy404)
+	}
 	return nil
 }
 

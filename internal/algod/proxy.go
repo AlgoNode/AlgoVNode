@@ -22,11 +22,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func proxyStatus(proxyStatuses *[]int, status int) bool {
+func proxyStatus(proxyStatuses []int, status int) bool {
 	if proxyStatuses == nil {
 		return true
 	}
-	for _, s := range *proxyStatuses {
+	for _, s := range proxyStatuses {
 		if s == status {
 			return true
 		}
@@ -42,11 +42,13 @@ func copyHeader(dst, src http.Header) {
 	}
 }
 
-func (node *Node) ProxyHTTP(wr http.ResponseWriter, req *http.Request, proxyStatuses *[]int) (bool, int, error) {
+func (node *Node) ProxyHTTP(wr http.ResponseWriter, req *http.Request, proxyStatuses []int) (bool, int, error) {
 	node.log.WithFields(logrus.Fields{"method": req.Method, "url": req.URL}).Info()
 	req.RequestURI = ""
 	//Todo: keep-alive ??
 	//ratelimiter
+	//timeout
+	//sandboxed timeout
 	//parallel calls to all catchup
 	//constant scanning on all catchup
 	//direct query relay nodes for block ranges
