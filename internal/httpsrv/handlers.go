@@ -1,6 +1,9 @@
 package httpsrv
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/labstack/echo/v4"
@@ -17,17 +20,30 @@ func (si *ServerImplementation) waitHandler(c echo.Context) error {
 	return nil
 }
 
-var proxy404 = []int{200, 204, 404}
+//TODO: tune this per endpoint
+var proxy404 = []int{200, 204, 400, 404}
 var proxy200 = []int{200, 204}
+var proxyALL []int = nil
 
 func (si *ServerImplementation) defaultHandler(c echo.Context) error {
-	for _, n := range si.cluster.GetCatchupSyncedNodesByTTL() {
-		//tctx := context.WithTimeout(c.Request().Context(), time.Second * 3)
-		//req, err := http.NewRequestWithContext()
-		//(tctx, , "https://api.myip.com", nil)
-		n.ProxyHTTP(c, proxy404)
+
+	nodes := si.cluster.GetSyncedNodesByTTL()
+
+	for i, n := range nodes {
+		if i < len(nodes)-1 {
+			//Proxy only if specific status is returned
+			if ok, _, _ := n.ProxyHTTP(c, proxy404); ok {
+				return nil
+			}
+		} else {
+			//Proxy any status from last node (fallback)
+			if ok, _, _ := n.ProxyHTTP(c, proxyALL); ok {
+				return nil
+			}
+		}
 	}
-	return nil
+	c.String(http.StatusBadGateway, "No synced upstream nodes available")
+	return errors.New("no synced upstream nodes available")
 }
 
 func (si *ServerImplementation) blocksHandler(c echo.Context) error {

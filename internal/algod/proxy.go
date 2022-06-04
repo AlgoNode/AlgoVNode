@@ -60,7 +60,7 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	//direct query relay nodes for block ranges
 	//parallel catchup queries
 	var bodyReader io.Reader
-	url := node.cfg.Address + "/" + oreq.URL.Path
+	url := node.cfg.Address + oreq.URL.Path
 	req, err := http.NewRequestWithContext(oreq.Context(), oreq.Method, url, bodyReader)
 	if err != nil {
 		return false, http.StatusBadGateway, err
@@ -74,7 +74,6 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 		req.Header.Set("X-Algod-API-Token", node.cfg.Token)
 	}
 
-	node.log.Debugf("Proxy req %v", req)
 	resp, err := node.httpClient.Do(req)
 	if err != nil {
 		http.Error(res, "Server Error", http.StatusInternalServerError)
@@ -83,8 +82,10 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	}
 	defer resp.Body.Close()
 	if proxyStatus(proxyStatuses, resp.StatusCode) {
-		copyHeader(res.Header(), resp.Header)
+		//copyHeader(res.Header(), resp.Header)
+		res.Header().Set("X-AVN-NodeID", node.cfg.Id)
 		res.WriteHeader(resp.StatusCode)
+		node.log.WithFields(logrus.Fields{"status:": resp.StatusCode, "path": oreq.URL.Path}).Debug()
 		io.Copy(res, resp.Body)
 		return true, resp.StatusCode, nil
 	}
