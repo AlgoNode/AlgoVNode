@@ -28,7 +28,6 @@ var proxyALL []int = nil
 func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 
 	nodes := si.cluster.GetSyncedNodesByTTL()
-
 	for i, n := range nodes {
 		if i < len(nodes)-1 {
 			//Proxy only if specific status is returned
@@ -54,7 +53,9 @@ func RegisterHandlersAuth(r *echo.Echo, si *ServerImplementation, m ...echo.Midd
 	r.GET("/v2/status/wait-for-block-after", si.waitHandler, m...)
 	r.GET("/v2/blocks/:round", si.blocksHandler, m...)
 
+	//TODO: handle this endpoint internally
 	r.GET("/v2/blocks/:round/transactions", si.defaultHandler, m...)
+
 	r.GET("/", si.defaultHandler, m...)
 	r.POST("/", si.defaultHandler, m...)
 	r.HEAD("/", si.defaultHandler, m...)

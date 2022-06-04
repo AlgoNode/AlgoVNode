@@ -100,7 +100,7 @@ func (gs *NodeCluster) GetSyncedNodesByTTL() []*Node {
 	catchupNodes := gs.GetCatchupSyncedNodesByTTL()
 	archiveNodes := gs.GetArchSyncedNodesByTTL()
 
-	nodes := make([]*Node, len(catchupNodes)+len(archiveNodes))
+	nodes := make([]*Node, 0, len(catchupNodes)+len(archiveNodes))
 	nodes = append(nodes, catchupNodes...)
 	nodes = append(nodes, archiveNodes...)
 	return nodes
