@@ -25,7 +25,7 @@ func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 		//tctx := context.WithTimeout(c.Request().Context(), time.Second * 3)
 		//req, err := http.NewRequestWithContext()
 		//(tctx, , "https://api.myip.com", nil)
-		n.ProxyHTTP(c.Response().Writer, c.Request(), proxy404)
+		n.ProxyHTTP(c, proxy404)
 	}
 	return nil
 }

@@ -307,9 +307,9 @@ func (node *Node) Start(ctx context.Context) error {
 	node.algodClient = aClient
 
 	ht := http.DefaultTransport.(*http.Transport).Clone()
-	ht.MaxIdleConns = 50
-	ht.MaxConnsPerHost = 50
-	ht.MaxIdleConnsPerHost = 50
+	ht.MaxIdleConns = 150
+	ht.MaxConnsPerHost = 150
+	ht.MaxIdleConnsPerHost = 150
 
 	node.httpClient = &http.Client{
 		Timeout:   10 * time.Second,

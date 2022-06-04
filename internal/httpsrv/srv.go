@@ -16,17 +16,12 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-// type defaultHandler struct {
-
-// }
-
 func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg config.AlgoVNodeConfig, log *logrus.Entry) *http.Server {
 	e := echo.New()
 
 	e.Use(MakeLogger(log.Logger))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
-
 	//TODO make this configurable
 	//e.Use(middleware.Gzip())
 

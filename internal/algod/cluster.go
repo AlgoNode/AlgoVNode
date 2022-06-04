@@ -18,6 +18,7 @@ package algod
 import (
 	"context"
 	"errors"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -218,4 +219,10 @@ func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg c
 	go cluster.stateChangeMonitor(ctx)
 	return cluster
 
+}
+
+func init() {
+	http.DefaultTransport.(*http.Transport).MaxIdleConns = 150
+	http.DefaultTransport.(*http.Transport).MaxConnsPerHost = 150
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 150
 }
