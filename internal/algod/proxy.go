@@ -16,8 +16,10 @@
 package algod
 
 import (
+	"context"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
@@ -45,13 +47,12 @@ func copyHeader(dst, src http.Header) {
 
 func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, error) {
 
-	//TODO stream response body instead of buffering
+	//TODO: stream response body instead of buffering
+
 	oreq := c.Request()
 	res := c.Response()
 
-	node.log.WithFields(logrus.Fields{"method": oreq.Method, "url": oreq.URL}).Info()
-
-	//Todo: keep-alive ??
+	//TODO: keep-alive ??
 	//ratelimiter
 	//timeout
 	//sandboxed timeout
@@ -60,8 +61,15 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	//direct query relay nodes for block ranges
 	//parallel catchup queries
 	var bodyReader io.Reader
-	url := node.cfg.Address + oreq.URL.Path
-	req, err := http.NewRequestWithContext(oreq.Context(), oreq.Method, url, bodyReader)
+	url := node.cfg.Address + oreq.RequestURI
+	timeout := time.Millisecond * time.Duration(50+int64(node.rttEwma))
+	//falback
+	if proxyStatuses == nil {
+		timeout = time.Second * 10
+	}
+	nctx, cf := context.WithTimeout(oreq.Context(), timeout)
+	defer cf()
+	req, err := http.NewRequestWithContext(nctx, oreq.Method, url, bodyReader)
 	if err != nil {
 		return false, http.StatusBadGateway, err
 	}
@@ -73,11 +81,10 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	if len(node.cfg.Token) > 0 {
 		req.Header.Set("X-Algod-API-Token", node.cfg.Token)
 	}
-
+	start := time.Now()
 	resp, err := node.httpClient.Do(req)
 	if err != nil {
-		http.Error(res, "Server Error", http.StatusInternalServerError)
-		node.log.WithFields(logrus.Fields{"ServeHTTP:": err}).Error()
+		node.log.WithError(err).Error()
 		return false, http.StatusInternalServerError, err
 	}
 	defer resp.Body.Close()
@@ -85,8 +92,8 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 		//copyHeader(res.Header(), resp.Header)
 		res.Header().Set("X-AVN-NodeID", node.cfg.Id)
 		res.WriteHeader(resp.StatusCode)
-		node.log.WithFields(logrus.Fields{"status:": resp.StatusCode, "path": oreq.URL.Path}).Debug()
 		io.Copy(res, resp.Body)
+		node.log.WithFields(logrus.Fields{"status:": resp.StatusCode, "path": oreq.URL.Path, "reqMs": time.Since(start).Milliseconds()}).Info(req.Method)
 		return true, resp.StatusCode, nil
 	}
 	return false, resp.StatusCode, nil

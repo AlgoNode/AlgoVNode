@@ -22,12 +22,12 @@ func (si *ServerImplementation) waitHandler(c echo.Context) error {
 
 //TODO: tune this per endpoint
 var proxy404 = []int{200, 204, 400, 404}
-var proxy200 = []int{200, 204}
+var proxy200 = []int{200, 204, 400}
 var proxyALL []int = nil
 
 func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 
-	nodes := si.cluster.GetSyncedNodesByTTL()
+	nodes := si.cluster.GetSyncedNodesByRTT()
 	for i, n := range nodes {
 		if i < len(nodes)-1 {
 			//Proxy only if specific status is returned
@@ -41,7 +41,9 @@ func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 			}
 		}
 	}
-	c.String(http.StatusBadGateway, "No synced upstream nodes available")
+
+	c.JSON(http.StatusBadGateway, map[string]string{"message": "No synced upstream nodes available"})
+
 	return errors.New("no synced upstream nodes available")
 }
 

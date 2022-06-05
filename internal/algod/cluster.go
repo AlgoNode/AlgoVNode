@@ -25,6 +25,8 @@ import (
 
 	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/config"
+	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
+	"github.com/dustin/go-broadcast"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,6 +43,7 @@ type NodeCluster struct {
 	catchupNodes []*Node
 	archNodes    []*Node
 	log          *logrus.Entry
+	broadcaster  broadcast.Broadcaster
 }
 
 //GetLatestRound returns latest round available on the cluster
@@ -59,9 +62,48 @@ func (gs *NodeCluster) SetLatestRound(lr uint64, node *Node) bool {
 		gs.latestRound = lr
 		gs.lastAt = time.Now()
 		gs.lastSrc = node
+		gs.broadcaster.TrySubmit(node.lastStatus)
 		return true
 	}
 	return false
+}
+
+func (gs *NodeCluster) broadcastListener(ctx context.Context) {
+	ch := make(chan interface{})
+	gs.broadcaster.Register(ch)
+	defer gs.broadcaster.Unregister(ch)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case status := <-ch:
+			gs.log.Debugf("Cluster is at round %d", status.(*models.NodeStatus).LastRound)
+		}
+	}
+}
+
+func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *models.NodeStatus {
+	gs.Lock()
+	lr := gs.latestRound
+	lrStatus := gs.lastSrc.lastStatus
+	gs.Unlock()
+	if lr > round {
+		return lrStatus
+	}
+	ch := make(chan interface{})
+	gs.broadcaster.Register(ch)
+	defer gs.broadcaster.Unregister(ch)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case status := <-ch:
+			nodeStatus := status.(*models.NodeStatus)
+			if nodeStatus.LastRound > round {
+				return nodeStatus
+			}
+		}
+	}
 }
 
 //EnsureGenesis returns error if supplied genesis hash does not match cluster genesis
@@ -87,18 +129,18 @@ func (gs *NodeCluster) WaitForFatal(ctx context.Context) {
 	}
 }
 
-//GetSyncNodesByTTL returns list of synced nodes ordered by status response time
-func (gs *NodeCluster) GetCatchupSyncedNodesByTTL() []*Node {
+//GetSyncNodesByRTT returns list of synced nodes ordered by status response time
+func (gs *NodeCluster) GetCatchupSyncedNodesByRTT() []*Node {
 	return gs.catchupNodes
 }
 
-func (gs *NodeCluster) GetArchSyncedNodesByTTL() []*Node {
+func (gs *NodeCluster) GetArchSyncedNodesByRTT() []*Node {
 	return gs.archNodes
 }
 
-func (gs *NodeCluster) GetSyncedNodesByTTL() []*Node {
-	catchupNodes := gs.GetCatchupSyncedNodesByTTL()
-	archiveNodes := gs.GetArchSyncedNodesByTTL()
+func (gs *NodeCluster) GetSyncedNodesByRTT() []*Node {
+	catchupNodes := gs.GetCatchupSyncedNodesByRTT()
+	archiveNodes := gs.GetArchSyncedNodesByRTT()
 
 	nodes := make([]*Node, 0, len(catchupNodes)+len(archiveNodes))
 	nodes = append(nodes, catchupNodes...)
@@ -125,10 +167,10 @@ func (gs *NodeCluster) updateNodeLists() {
 		}
 	}
 	sort.SliceStable(catchupNodes, func(i, j int) bool {
-		return catchupNodes[i].ttlEwma < catchupNodes[j].ttlEwma
+		return catchupNodes[i].rttEwma < catchupNodes[j].rttEwma
 	})
 	sort.SliceStable(archNodes, func(i, j int) bool {
-		return archNodes[i].ttlEwma < archNodes[j].ttlEwma
+		return archNodes[i].rttEwma < archNodes[j].rttEwma
 	})
 	gs.archNodes = archNodes
 	gs.catchupNodes = catchupNodes
@@ -159,13 +201,13 @@ func (gs *NodeCluster) LoadBlock(ctx context.Context, round uint64) {
 			fetches := 0
 			for _, n := range gs.catchupNodes {
 				//try all catchup in parallel
-				go n.FetchBlockRaw(ctx, round)
+				go n.fetchBlockRaw(ctx, round)
 				fetches++
 			}
 			if fetches == 0 {
 				for _, n := range gs.archNodes {
 					//try all archive in parallel
-					go n.FetchBlockRaw(ctx, round)
+					go n.fetchBlockRaw(ctx, round)
 					fetches++
 				}
 			}
@@ -180,7 +222,7 @@ func (gs *NodeCluster) LoadBlock(ctx context.Context, round uint64) {
 				//skip for some node states
 				if !n.Catchup && n.state != AnsFailed {
 					//try all archive in parallel
-					n.FetchBlockRaw(ctx, round)
+					n.fetchBlockRaw(ctx, round)
 					fetches++
 				}
 			}
@@ -198,12 +240,12 @@ func (gs *NodeCluster) addNode(ctx context.Context, cfg *config.NodeCfg) error {
 		state:    AnsConfig,
 		state_at: time.Now(),
 		Catchup:  true,
-		ttlEwma:  100_000_000,
+		rttEwma:  100_000_000,
 		cluster:  gs,
 		cfg:      cfg,
 		genesis:  "",
 	}
-	node.log = gs.log.WithFields(logrus.Fields{"nodeId": cfg.Id, "state": &node.state, "ttlMs": &node.ttlEwma})
+	node.log = gs.log.WithFields(logrus.Fields{"nodeId": cfg.Id, "state": &node.state, "rttMs": &node.rttEwma})
 	gs.nodes = append(gs.nodes, node)
 	return node.Start(ctx)
 }
@@ -220,11 +262,14 @@ func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg c
 		catchupNodes: make([]*Node, 0),
 		archNodes:    make([]*Node, 0),
 		cState:       make(chan struct{}, 100),
+		broadcaster:  broadcast.NewBroadcaster(1),
 	}
 
 	for _, n := range cfg.Virtual.Nodes {
 		cluster.addNode(ctx, n)
 	}
+
+	go cluster.broadcastListener(ctx)
 
 	go cluster.stateChangeMonitor(ctx)
 	return cluster

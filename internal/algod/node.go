@@ -72,47 +72,50 @@ type Node struct {
 	algodClient *algod.Client
 	genesis     string
 	Catchup     bool
-	ttlEwma     float32
+	rttEwma     float32
 	latestRound uint64
 	state       ANState
 	state_at    time.Time
 	cluster     *NodeCluster
+	lastStatus  *models.NodeStatus
 }
 
 func (node *Node) Synced() bool {
-	//todo atomic
+	//TODO: atomic
 	node.Lock()
 	defer node.Unlock()
 	return node.state == AnsSynced
 }
 
-func (node *Node) UpdateWithStatus(nodeStatus *models.NodeStatus) bool {
+func (node *Node) updateWithStatus(nodeStatus *models.NodeStatus) bool {
 	if nodeStatus.StoppedAtUnsupportedRound {
-		node.SetState(AnsFailed, "Upgrade required")
+		node.setState(AnsFailed, "Upgrade required")
 		return false
 	}
 
 	if nodeStatus.CatchupTime > 0 {
-		node.SetState(AnsSyncing, "Not synced")
+		node.setState(AnsSyncing, "Not synced")
 	} else {
-		node.SetState(AnsSynced, "Synced")
+		node.setState(AnsSynced, "Synced")
 	}
 	node.Lock()
 	if nodeStatus.LastRound > node.latestRound {
 		node.latestRound = nodeStatus.LastRound
 	}
+	node.lastStatus = nodeStatus
+
 	//	node.log.Debugf("lastRound is %d", node.latestRound)
 	node.Unlock()
 	return true
 }
 
-func (node *Node) UpdateStatus(ctx context.Context) bool {
+func (node *Node) updateStatus(ctx context.Context) bool {
 	var nodeStatus *models.NodeStatus
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		ns, err := node.algodClient.Status().Do(actx)
 		if err != nil {
 			node.log.WithError(err).Warn("GetStatus")
-			node.SetState(AnsFailing, err.Error())
+			node.setState(AnsFailing, err.Error())
 			return false, err
 		}
 		nodeStatus = &ns
@@ -122,15 +125,15 @@ func (node *Node) UpdateStatus(ctx context.Context) bool {
 		//Ctx got cancelled, exit silently
 		return false
 	}
-	if node.UpdateWithStatus(nodeStatus) {
+	if node.updateWithStatus(nodeStatus) {
 		node.cluster.SetLatestRound(node.latestRound, node)
 		return true
 	}
 	return false
 }
 
-func (node *Node) Boot(ctx context.Context) bool {
-	node.SetState(AnsBooting, "Booting")
+func (node *Node) boot(ctx context.Context) bool {
+	node.setState(AnsBooting, "Booting")
 	node.latestRound = 0
 
 	var genesis string = ""
@@ -157,24 +160,24 @@ func (node *Node) Boot(ctx context.Context) bool {
 	}
 	node.genesis = genesis
 
-	if node.FetchBlockRaw(ctx, 0) {
+	if node.fetchBlockRaw(ctx, 0) {
 		node.log.Infof("Node is archival")
 		node.Catchup = false
 	}
 
-	return node.UpdateStatus(ctx)
+	return node.updateStatus(ctx)
 }
-func (node *Node) UpdateTTL(us int64) {
+func (node *Node) UpdateRTT(us int64) {
 	node.Lock()
-	if node.ttlEwma > 99_999 {
-		node.ttlEwma = float32(us) / 1000.0
+	if node.rttEwma > 99_999 {
+		node.rttEwma = float32(us) / 1000.0
 	} else {
-		node.ttlEwma = node.ttlEwma*0.9 + float32(us)*0.1/1000.0
+		node.rttEwma = node.rttEwma*0.9 + float32(us)*0.1/1000.0
 	}
 	node.Unlock()
 }
 
-func (node *Node) UpdateStatusAfter(ctx context.Context) uint64 {
+func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
 	var nodeStatus *models.NodeStatus
 	var lr uint64 = 0
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
@@ -193,7 +196,7 @@ func (node *Node) UpdateStatusAfter(ctx context.Context) uint64 {
 		//reboot
 		return 0
 	}
-	if !node.UpdateWithStatus(nodeStatus) {
+	if !node.updateWithStatus(nodeStatus) {
 		//reboot
 		return 0
 	}
@@ -216,7 +219,7 @@ func isFatalAPIError(err error) bool {
 	return false
 }
 
-func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
+func (node *Node) fetchBlockRaw(ctx context.Context, bn uint64) bool {
 	block := new(rpcs.EncodedBlockCert)
 	var rawBlock []byte
 	node.log.Infof("Fetching block %d", bn)
@@ -226,13 +229,13 @@ func (node *Node) FetchBlockRaw(ctx context.Context, bn uint64) bool {
 
 		if err != nil {
 			if isFatalAPIError(err) {
-				node.UpdateTTL(time.Since(start).Microseconds())
+				node.UpdateRTT(time.Since(start).Microseconds())
 				return true, err
 			}
 			node.log.WithError(err).Warnf("BlockRaw %d", bn)
 			return false, err
 		}
-		node.UpdateTTL(time.Since(start).Microseconds())
+		node.UpdateRTT(time.Since(start).Microseconds())
 
 		err = protocol.Decode(rb, block)
 		if err != nil {
@@ -255,7 +258,7 @@ func (node *Node) Monitor(ctx context.Context) {
 	for ctx.Err() == nil {
 		//TODO - detect node swap mainnet -> testnet
 
-		lr := node.UpdateStatusAfter(ctx)
+		lr := node.updateStatusAfter(ctx)
 		if lr == 0 {
 			//reboot
 			if ctx.Err() == nil {
@@ -271,7 +274,7 @@ func (node *Node) Monitor(ctx context.Context) {
 		}
 		clr := node.cluster.GetLatestRound()
 		if clr < lr+1 {
-			if !node.FetchBlockRaw(ctx, lr+1) {
+			if !node.fetchBlockRaw(ctx, lr+1) {
 				//reboot
 				if ctx.Err() == nil {
 					node.log.Errorf("Rebooting node due to issue with Fetch Block")
@@ -284,9 +287,9 @@ func (node *Node) Monitor(ctx context.Context) {
 	}
 }
 
-func (node *Node) MainLoop(ctx context.Context) {
+func (node *Node) mainLoop(ctx context.Context) {
 	for ctx.Err() == nil {
-		if !node.Boot(ctx) {
+		if !node.boot(ctx) {
 			time.Sleep(time.Second)
 			continue
 		}
@@ -315,7 +318,7 @@ func (node *Node) Start(ctx context.Context) error {
 		Timeout:   10 * time.Second,
 		Transport: ht,
 	}
-	go node.MainLoop(ctx)
+	go node.mainLoop(ctx)
 	return nil
 }
 
@@ -345,7 +348,7 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 	return false
 }
 
-func (node *Node) SetState(state ANState, reason string) {
+func (node *Node) setState(state ANState, reason string) {
 	node.Lock()
 	defer node.Unlock()
 	if state == node.state {

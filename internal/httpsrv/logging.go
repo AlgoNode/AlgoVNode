@@ -1,7 +1,6 @@
 package httpsrv
 
 import (
-	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -35,19 +34,14 @@ func (logger *loggerMiddleware) handler(next echo.HandlerFunc) echo.HandlerFunc 
 			ctx.Error(err)
 		}
 
-		logger.log.Infof("%s %s %s [%v] \"%s %s %s\" %d %s \"%s\" %s",
-			req.RemoteAddr,
-			"-",
-			"-",
-			start,
-			req.Method,
-			req.RequestURI,
-			req.Proto, // string "HTTP/1.1"
-			res.Status,
-			strconv.FormatInt(res.Size, 10), // bytes_out
-			req.UserAgent(),
-			time.Since(start),
-		)
+		logger.log.WithFields(log.Fields{
+			"ip":     ctx.RealIP(),
+			"method": req.Method,
+			"status": res.Status,
+			"ua":     req.UserAgent(),
+			"reqMs":  time.Since(start).Milliseconds(),
+			"bytes":  res.Size,
+		}).Info("API")
 
 		return
 	}

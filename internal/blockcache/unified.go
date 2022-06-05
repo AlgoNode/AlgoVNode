@@ -24,9 +24,9 @@ import (
 	cache "github.com/hashicorp/golang-lru"
 )
 
-//TODO
+//TODO:
 // configurable cache sizes
-// replace LRU with FIFO + TTL for arch
+// replace LRU with FIFO + RTT for arch
 const (
 	CatchupSize = 1000
 	ArchSize    = 1000
