@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/algonode/algovnode/internal/blockcache"
+	"github.com/algonode/algovnode/internal/blockfetcher"
 	"github.com/algonode/algovnode/internal/config"
 	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
 	"github.com/dustin/go-broadcast"
@@ -100,6 +101,7 @@ func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *mo
 		case status := <-ch:
 			nodeStatus := status.(*models.NodeStatus)
 			if nodeStatus.LastRound > round {
+				gs.log.Debugf("w4ba: %#v", nodeStatus)
 				return nodeStatus
 			}
 		}
@@ -146,6 +148,10 @@ func (gs *NodeCluster) GetSyncedNodesByRTT() []*Node {
 	nodes = append(nodes, catchupNodes...)
 	nodes = append(nodes, archiveNodes...)
 	return nodes
+}
+
+func (gs *NodeCluster) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
+	return gs.ucache.GetBlock(ctx, round)
 }
 
 func (gs *NodeCluster) StateUpdate() {

@@ -64,8 +64,8 @@ func (ubc *UnifiedBlockCache) promiseBlock(round uint64) *BlockEntry {
 	return ubc.getCache(round).promiseBlock(round)
 }
 
-//getBlock reads cached block or blocks till one is fetched from the cluster
-func (ubc *UnifiedBlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
+//GetBlock reads cached block or blocks till one is fetched from the cluster
+func (ubc *UnifiedBlockCache) GetBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
 	ubc.Lock()
 	if bw, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
 		ubc.Unlock()

@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"golang.org/x/time/rate"
 )
 
 func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg config.AlgoVNodeConfig, log *logrus.Entry) *http.Server {
@@ -23,16 +24,16 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 	//TODO make this configurable
-	//e.Use(middleware.Gzip())
+	e.Use(middleware.Gzip())
 
 	//TODO Ratelimiting
-	// if cfg.Virtual.RateLimit > 0 {
-	// 	e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(cfg.Virtual.RateLimit)))
-	// }
+	if cfg.Virtual.RateLimit > 0 {
+		e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(cfg.Virtual.RateLimit))))
+	}
 
 	middlewares := make([]echo.MiddlewareFunc, 0)
 	if len(cfg.Virtual.Tokens) > 0 {
-		middlewares = append(middlewares, MakeAuth("X-Indexer-API-Token", cfg.Virtual.Tokens))
+		middlewares = append(middlewares, MakeAuth("X-Algo-API-Token", cfg.Virtual.Tokens))
 	}
 
 	api := ServerImplementation{
@@ -55,9 +56,9 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 	}
 
 	s := &http.Server{
-		Addr:           cfg.Virtual.Http.Listen,
-		ReadTimeout:    time.Second * 15,
-		WriteTimeout:   time.Second * 15,
+		Addr:        cfg.Virtual.Http.Listen,
+		ReadTimeout: time.Second * 15,
+		// WriteTimeout:   time.Second * 15,
 		MaxHeaderBytes: 1 << 20,
 		BaseContext:    getctx,
 		Handler:        e,

@@ -12,7 +12,7 @@ import (
 const urlAuthFormatter = "/urlAuth/%s"
 
 type authMiddleware struct {
-	// Header is the token header which needs to be provided. For example 'X-Algod-API-Token'.
+	// Header is the token header which needs to be provided. For example 'X-Algo-API-Token'.
 	header string
 
 	// Tokens is the set of tokens which can be set to allow access.

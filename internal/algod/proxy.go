@@ -62,7 +62,7 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	//parallel catchup queries
 	var bodyReader io.Reader
 	url := node.cfg.Address + oreq.RequestURI
-	timeout := time.Millisecond * time.Duration(50+int64(node.rttEwma))
+	timeout := time.Millisecond * time.Duration(250+int64(node.rttEwma))
 	//falback
 	if proxyStatuses == nil {
 		timeout = time.Second * 10
@@ -79,7 +79,7 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 		req.Header.Set(echo.HeaderXForwardedProto, c.Scheme())
 	}
 	if len(node.cfg.Token) > 0 {
-		req.Header.Set("X-Algod-API-Token", node.cfg.Token)
+		req.Header.Set("X-Algo-API-Token", node.cfg.Token)
 	}
 	start := time.Now()
 	resp, err := node.httpClient.Do(req)
