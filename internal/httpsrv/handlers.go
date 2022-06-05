@@ -3,6 +3,7 @@ package httpsrv
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/blockcache"
@@ -16,14 +17,29 @@ type ServerImplementation struct {
 	cluster *algod.NodeCluster
 }
 
-func (si *ServerImplementation) waitHandler(c echo.Context) error {
-	return nil
-}
-
 //TODO: tune this per endpoint
 var proxy404 = []int{200, 204, 400, 404}
 var proxy200 = []int{200, 204, 400}
 var proxyALL []int = nil
+
+func (si *ServerImplementation) waitHandler(c echo.Context) error {
+	round := c.Param("round")
+	roundInt64, err := strconv.ParseInt(round, 10, 64)
+	if round == "" || err != nil || roundInt64 < 0 {
+		jsonError(c, http.StatusBadRequest, "Invalid round value")
+		return nil
+	}
+	status := si.cluster.WaitForStatusAfter(c.Request().Context(), uint64(roundInt64))
+	if status == nil {
+		jsonError(c, http.StatusInternalServerError, "Error waiting for round")
+		return nil
+	}
+	return c.JSON(http.StatusOK, status)
+}
+
+func jsonError(c echo.Context, status int, err string) {
+	c.JSON(status, map[string]string{"message": err})
+}
 
 func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 
@@ -42,7 +58,7 @@ func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 		}
 	}
 
-	c.JSON(http.StatusBadGateway, map[string]string{"message": "No synced upstream nodes available"})
+	jsonError(c, http.StatusBadGateway, "No synced upstream nodes available")
 
 	return errors.New("no synced upstream nodes available")
 }
@@ -52,7 +68,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context) error {
 }
 
 func RegisterHandlersAuth(r *echo.Echo, si *ServerImplementation, m ...echo.MiddlewareFunc) {
-	r.GET("/v2/status/wait-for-block-after", si.waitHandler, m...)
+	r.GET("/v2/status/wait-for-block-after/:round", si.waitHandler, m...)
 	r.GET("/v2/blocks/:round", si.blocksHandler, m...)
 
 	//TODO: handle this endpoint internally
