@@ -5,6 +5,7 @@ import (
 
 	"github.com/algonode/algovnode/internal/blockfetcher"
 	cache "github.com/hashicorp/golang-lru"
+	"github.com/sirupsen/logrus"
 )
 
 type BlockEntry struct {
@@ -16,15 +17,21 @@ type BlockEntry struct {
 type BlockCache struct {
 	c    *cache.Cache
 	last uint64
+	name string
 }
 
 func (bc *BlockCache) promiseBlock(round uint64) *BlockEntry {
+	logrus.Debugf("Promising block %d in %s cache", round, bc.name)
 	be := &BlockEntry{
 		B:       nil,
 		WaitFor: make(chan struct{}),
 		Round:   uint64(round),
 	}
-	bc.c.Add(be.Round, be)
+	if ok, _ := bc.c.ContainsOrAdd(be.Round, be); ok {
+		if be, ok := bc.c.Get(be.Round); ok {
+			return be.(*BlockEntry)
+		}
+	}
 	return be
 }
 
@@ -56,6 +63,13 @@ func (bc *BlockCache) tryGetBlock(round uint64) (*blockfetcher.BlockWrap, bool) 
 		return bw, true
 	}
 	return nil, false
+}
+
+func (bc *BlockCache) IsBlockPromised(round uint64) bool {
+	if be, ok := bc.c.Get(round); ok {
+		return be.(*BlockEntry).B == nil
+	}
+	return false
 }
 
 func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, bool) {

@@ -87,18 +87,15 @@ func (si *ServerImplementation) blocksHandler(c echo.Context) error {
 		return nil
 	}
 
-	var formatPtr *string
-	err = echo.QueryParamsBinder(c).String("format", formatPtr).BindError()
+	format := "json"
+	err = echo.QueryParamsBinder(c).String("format", &format).BindError()
 	if err != nil {
 		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter format: %s", err))
 		return nil
 	}
 
 	msgpack := false
-	format := "json"
-	if formatPtr != nil {
-		format = strings.ToLower(*formatPtr)
-	}
+	format = strings.ToLower(format)
 
 	switch format {
 	case "json":
@@ -108,7 +105,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context) error {
 	case "msgp":
 		msgpack = true
 	default:
-		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid  format: %s", *formatPtr))
+		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format: %s", format))
 		return nil
 	}
 

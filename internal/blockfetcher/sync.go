@@ -19,7 +19,7 @@ type BlockWrap struct {
 }
 
 type BlockFetcher interface {
-	LoadBlock(ctx context.Context, round uint64)
+	LoadBlockSync(ctx context.Context, round uint64) bool
 }
 
 func MakeBlockWrap(src string, block *rpcs.EncodedBlockCert, blockRaw []byte) (*BlockWrap, error) {

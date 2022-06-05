@@ -60,24 +60,27 @@ func (ubc *UnifiedBlockCache) addBlock(b *blockfetcher.BlockWrap) {
 	ubc.getCache(b.Round).addBlock(b)
 }
 
-func (ubc *UnifiedBlockCache) promiseBlock(round uint64) *BlockEntry {
-	return ubc.getCache(round).promiseBlock(round)
+func (ubc *UnifiedBlockCache) promiseBlock(ctx context.Context, round uint64) *BlockEntry {
+	be := ubc.getCache(round).promiseBlock(round)
+	go func() {
+		ubc.bf.LoadBlockSync(ctx, round)
+	}()
+	return be
+}
+
+func (ubc *UnifiedBlockCache) IsBlockPromised(round uint64) bool {
+	return ubc.catchupCache.IsBlockPromised(round) || ubc.archCache.IsBlockPromised(round)
 }
 
 //GetBlock reads cached block or blocks till one is fetched from the cluster
 func (ubc *UnifiedBlockCache) GetBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
-	ubc.Lock()
 	if bw, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
-		ubc.Unlock()
 		return bw, nil
 	}
 	if bw, _ := ubc.archCache.getBlock(ctx, round); bw != nil {
-		ubc.Unlock()
 		return bw, nil
 	}
-	ubc.promiseBlock(round)
-	ubc.Unlock()
-	ubc.bf.LoadBlock(ctx, round)
+	ubc.promiseBlock(ctx, round)
 	if bw, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
 		return bw, nil
 	}
@@ -99,8 +102,8 @@ func New(ctx context.Context) *UnifiedBlockCache {
 	bs := make(chan *blockfetcher.BlockWrap, CatchupSize)
 
 	ubc := &UnifiedBlockCache{
-		catchupCache: &BlockCache{c: cc, last: 0},
-		archCache:    &BlockCache{c: ca, last: 0},
+		catchupCache: &BlockCache{c: cc, last: 0, name: "catchup"},
+		archCache:    &BlockCache{c: ca, last: 0, name: "archive"},
 		Sink:         bs,
 	}
 

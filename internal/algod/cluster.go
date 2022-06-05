@@ -154,6 +154,10 @@ func (gs *NodeCluster) getBlock(ctx context.Context, round uint64) (*blockfetche
 	return gs.ucache.GetBlock(ctx, round)
 }
 
+func (gs *NodeCluster) isBlockPromised(round uint64) bool {
+	return gs.ucache.IsBlockPromised(round)
+}
+
 func (gs *NodeCluster) StateUpdate() {
 	gs.cState <- struct{}{}
 }
@@ -196,49 +200,37 @@ func (gs *NodeCluster) stateChangeMonitor(ctx context.Context) {
 }
 
 //LoadBlock does
-func (gs *NodeCluster) LoadBlock(ctx context.Context, round uint64) {
+func (gs *NodeCluster) LoadBlockSync(ctx context.Context, round uint64) bool {
 	//TODO
 	//handle future rounds
 	//handle parallel limit
 	if round > gs.latestRound {
 		gs.fatalErr <- errors.New("tried to load future block")
-	} else {
-		if round < gs.latestRound-blockcache.CatchupSize+2 {
-			fetches := 0
-			for _, n := range gs.catchupNodes {
-				//try all catchup in parallel
-				go n.fetchBlockRaw(ctx, round)
-				fetches++
-			}
-			if fetches == 0 {
-				for _, n := range gs.archNodes {
-					//try all archive in parallel
-					go n.fetchBlockRaw(ctx, round)
-					fetches++
-				}
-			}
-			if fetches == 0 {
-				gs.log.Errorf("all nodes unavailable to load block %d", round)
-			} else {
-				gs.log.Debugf("fetching block %d on %d nodes", round, fetches)
-			}
-		} else {
-			fetches := 0
-			for _, n := range gs.nodes {
-				//skip for some node states
-				if !n.Catchup && n.state != AnsFailed {
-					//try all archive in parallel
-					n.fetchBlockRaw(ctx, round)
-					fetches++
-				}
-			}
-			if fetches == 0 {
-				gs.log.Errorf("All nodes unavailable to load block %d", round)
-			} else {
-				gs.log.Debugf("Fetching block %d on %d nodes", round, fetches)
+		return false
+	}
+	if round > gs.latestRound-blockcache.CatchupSize+4 {
+		gs.log.Debugf("fetching block %d starting with catchup nodes", round)
+		for _, n := range gs.catchupNodes {
+			if n.fetchBlockRaw(ctx, round) {
+				return true
 			}
 		}
+		gs.log.Debugf("falling back to archive nodes for block %d", round)
+		for _, n := range gs.archNodes {
+			if n.fetchBlockRaw(ctx, round) {
+				return true
+			}
+		}
+		gs.log.Errorf("all nodes unavailable to load block %d", round)
+		return false
 	}
+	for _, n := range gs.archNodes {
+		if n.fetchBlockRaw(ctx, round) {
+			return true
+		}
+	}
+	gs.log.Errorf("all nodes unavailable to load block %d", round)
+	return false
 }
 
 func (gs *NodeCluster) addNode(ctx context.Context, cfg *config.NodeCfg) error {

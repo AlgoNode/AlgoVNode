@@ -112,12 +112,14 @@ func (node *Node) updateWithStatus(nodeStatus *models.NodeStatus) bool {
 func (node *Node) updateStatus(ctx context.Context) bool {
 	var nodeStatus *models.NodeStatus
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
+		start := time.Now()
 		ns, err := node.algodClient.Status().Do(actx)
 		if err != nil {
 			node.log.WithError(err).Warn("GetStatus")
 			node.setState(AnsFailing, err.Error())
 			return false, err
 		}
+		node.updateRTT(time.Since(start).Microseconds())
 		nodeStatus = &ns
 		return false, nil
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 0)
@@ -167,12 +169,12 @@ func (node *Node) boot(ctx context.Context) bool {
 
 	return node.updateStatus(ctx)
 }
-func (node *Node) UpdateRTT(us int64) {
+func (node *Node) updateRTT(us int64) {
 	node.Lock()
 	if node.rttEwma > 99_999 {
 		node.rttEwma = float32(us) / 1000.0
 	} else {
-		node.rttEwma = node.rttEwma*0.9 + float32(us)*0.1/1000.0
+		node.rttEwma = 0.9*node.rttEwma + 0.1*float32(us)/1000.0
 	}
 	node.Unlock()
 }
@@ -185,14 +187,15 @@ func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
 		lr = node.cluster.GetLatestRound()
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
-			node.log.WithError(err).Warnf("StatusAfterBlock %d", lr)
 			return false, err
 		}
 		nodeStatus = &ns
 		return false, nil
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
 	if err != nil {
-		node.log.WithError(err).Errorf("StatusAfterBlock %d", lr)
+		if err != context.Canceled {
+			node.log.WithError(err).Errorf("StatusAfterBlock %d", lr)
+		}
 		//reboot
 		return 0
 	}
@@ -219,24 +222,21 @@ func isFatalAPIError(err error) bool {
 	return false
 }
 
-func (node *Node) fetchBlockRaw(ctx context.Context, bn uint64) bool {
+func (node *Node) fetchBlockRaw(ctx context.Context, round uint64) bool {
 	block := new(rpcs.EncodedBlockCert)
 	var rawBlock []byte
-	node.log.Infof("Fetching block %d", bn)
+	node.log.Infof("Fetching block %d", round)
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		start := time.Now()
-		rb, err := node.algodClient.BlockRaw(bn).Do(ctx)
-
+		rb, err := node.algodClient.BlockRaw(round).Do(ctx)
 		if err != nil {
 			if isFatalAPIError(err) {
-				node.UpdateRTT(time.Since(start).Microseconds())
 				return true, err
 			}
-			node.log.WithError(err).Warnf("BlockRaw %d", bn)
+			node.log.WithError(err).Warnf("BlockRaw %d", round)
 			return false, err
 		}
-		node.UpdateRTT(time.Since(start).Microseconds())
-
+		node.updateRTT(time.Since(start).Microseconds())
 		err = protocol.Decode(rb, block)
 		if err != nil {
 			node.log.WithError(err).Warn()
@@ -247,7 +247,7 @@ func (node *Node) fetchBlockRaw(ctx context.Context, bn uint64) bool {
 		return false, nil
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
 	if err != nil {
-		node.log.WithError(err).Errorf("BlockRaw %d", bn)
+		node.log.WithError(err).Errorf("BlockRaw %d", round)
 		return false
 	}
 	node.BlockSink(block, rawBlock)
@@ -344,6 +344,17 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 			node.log.Errorf("Block %d discarded, no sink", block.Block.BlockHeader.Round)
 		}
 		return true
+	}
+	if node.cluster.isBlockPromised(uint64(block.Block.BlockHeader.Round)) {
+		bw, err := blockfetcher.MakeBlockWrap(node.cfg.Id, block, blockRaw)
+		if err != nil {
+			node.log.WithError(err).Errorf("Error making blockWrap")
+			return false
+		}
+		if node.cluster.ucache != nil {
+			node.cluster.ucache.Sink <- bw
+			return true
+		}
 	}
 	return false
 }
