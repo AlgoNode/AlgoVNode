@@ -248,6 +248,7 @@ func (node *Node) fetchBlockRaw(ctx context.Context, round uint64) bool {
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
 	if err != nil {
 		node.log.WithError(err).Errorf("BlockRaw %d", round)
+		node.BlockSinkError(round, err)
 		return false
 	}
 	node.BlockSink(block, rawBlock)
@@ -329,6 +330,15 @@ type NodeStatus struct {
 	LastCP    string
 }
 
+func (node *Node) BlockSinkError(round uint64, err error) {
+	if node.cluster.ucache.Sink != nil {
+		node.cluster.ucache.Sink <- &blockfetcher.BlockWrap{
+			Round: round,
+			Error: err,
+		}
+	}
+}
+
 func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool {
 	if node.cluster.SetLatestRound(uint64(block.Block.BlockHeader.Round), node) {
 		//we won the race
@@ -345,7 +355,7 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 		}
 		return true
 	}
-	if node.cluster.isBlockPromised(uint64(block.Block.BlockHeader.Round)) {
+	if !node.cluster.isBlockCached(uint64(block.Block.BlockHeader.Round)) {
 		bw, err := blockfetcher.MakeBlockWrap(node.cfg.Id, block, blockRaw)
 		if err != nil {
 			node.log.WithError(err).Errorf("Error making blockWrap")
@@ -353,7 +363,10 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 		}
 		if node.cluster.ucache != nil {
 			node.cluster.ucache.Sink <- bw
+			node.log.Tracef("Block %d sent to cache, sd:%d", block.Block.BlockHeader.Round, len(node.cluster.ucache.Sink))
 			return true
+		} else {
+			node.log.Errorf("Block %d discarded, no sink", block.Block.BlockHeader.Round)
 		}
 	}
 	return false

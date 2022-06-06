@@ -22,6 +22,7 @@ import (
 
 	"github.com/algonode/algovnode/internal/blockfetcher"
 	cache "github.com/hashicorp/golang-lru"
+	"github.com/sirupsen/logrus"
 )
 
 //TODO:
@@ -46,8 +47,11 @@ type UnifiedBlockCache struct {
 }
 
 //getCache returns pointer to a block cache appropriate for the block round
-func (ubc *UnifiedBlockCache) getCache(round uint64) *BlockCache {
-	if ubc.catchupCache.last != 0 || round < ubc.catchupCache.last-CatchupSize {
+func (ubc *UnifiedBlockCache) getCacheWithPeek(round uint64) *BlockCache {
+	if ubc.archCache.IsBlockPromised(round) {
+		return ubc.archCache
+	}
+	if round > 0 && (ubc.catchupCache.last == 0 || round > ubc.catchupCache.last-CatchupSize) {
 		return ubc.catchupCache
 	}
 	return ubc.archCache
@@ -57,35 +61,39 @@ func (ubc *UnifiedBlockCache) getCache(round uint64) *BlockCache {
 func (ubc *UnifiedBlockCache) addBlock(b *blockfetcher.BlockWrap) {
 	ubc.Lock()
 	defer ubc.Unlock()
-	ubc.getCache(b.Round).addBlock(b)
+	//todo - which cache
+	ubc.getCacheWithPeek(b.Round).addBlock(b)
 }
 
 func (ubc *UnifiedBlockCache) promiseBlock(ctx context.Context, round uint64) *BlockEntry {
-	be := ubc.getCache(round).promiseBlock(round)
+	c := ubc.getCacheWithPeek(round)
+	logrus.Debugf("Promising block %d in %s cache", round, c.name)
+	be := c.promiseBlock(round)
 	go func() {
 		ubc.bf.LoadBlockSync(ctx, round)
 	}()
+
 	return be
 }
 
-func (ubc *UnifiedBlockCache) IsBlockPromised(round uint64) bool {
-	return ubc.catchupCache.IsBlockPromised(round) || ubc.archCache.IsBlockPromised(round)
+func (ubc *UnifiedBlockCache) IsBlockCached(round uint64) bool {
+	return ubc.catchupCache.IsBlockCached(round) || ubc.archCache.IsBlockCached(round)
 }
 
 //GetBlock reads cached block or blocks till one is fetched from the cluster
 func (ubc *UnifiedBlockCache) GetBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
-	if bw, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
+	if bw, _, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
 		return bw, nil
 	}
-	if bw, _ := ubc.archCache.getBlock(ctx, round); bw != nil {
+	if bw, _, _ := ubc.archCache.getBlock(ctx, round); bw != nil {
 		return bw, nil
 	}
 	ubc.promiseBlock(ctx, round)
-	if bw, _ := ubc.catchupCache.getBlock(ctx, round); bw != nil {
-		return bw, nil
+	if bw, _, err := ubc.catchupCache.getBlock(ctx, round); bw != nil || err != nil {
+		return bw, err
 	}
-	if bw, _ := ubc.archCache.getBlock(ctx, round); bw != nil {
-		return bw, nil
+	if bw, _, err := ubc.archCache.getBlock(ctx, round); bw != nil || err != nil {
+		return bw, err
 	}
 	return nil, fmt.Errorf("error getting block %d", round)
 }

@@ -154,8 +154,8 @@ func (gs *NodeCluster) getBlock(ctx context.Context, round uint64) (*blockfetche
 	return gs.ucache.GetBlock(ctx, round)
 }
 
-func (gs *NodeCluster) isBlockPromised(round uint64) bool {
-	return gs.ucache.IsBlockPromised(round)
+func (gs *NodeCluster) isBlockCached(round uint64) bool {
+	return gs.ucache.IsBlockCached(round)
 }
 
 func (gs *NodeCluster) StateUpdate() {

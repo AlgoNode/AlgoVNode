@@ -2,6 +2,8 @@ package blockcache
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"github.com/algonode/algovnode/internal/blockfetcher"
 	cache "github.com/hashicorp/golang-lru"
@@ -9,9 +11,11 @@ import (
 )
 
 type BlockEntry struct {
+	sync.RWMutex
 	B       *blockfetcher.BlockWrap
 	WaitFor chan struct{}
 	Round   uint64
+	Error   error
 }
 
 type BlockCache struct {
@@ -21,68 +25,108 @@ type BlockCache struct {
 }
 
 func (bc *BlockCache) promiseBlock(round uint64) *BlockEntry {
-	logrus.Debugf("Promising block %d in %s cache", round, bc.name)
+	//under ubc lock
 	be := &BlockEntry{
 		B:       nil,
 		WaitFor: make(chan struct{}),
 		Round:   uint64(round),
 	}
-	if ok, _ := bc.c.ContainsOrAdd(be.Round, be); ok {
-		if be, ok := bc.c.Get(be.Round); ok {
-			return be.(*BlockEntry)
+	if fbe, ok, _ := bc.c.PeekOrAdd(be.Round, be); ok {
+		bentry := fbe.(*BlockEntry)
+		bentry.Lock()
+		if bentry.Error != nil {
+			//FIXME: danger
+			//rearm
+			bentry.WaitFor = make(chan struct{})
+			bentry.Error = nil
 		}
+		bentry.Unlock()
+		return bentry
 	}
 	return be
 }
 
 func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {
 	be := &BlockEntry{
-		B:       b,
-		WaitFor: make(chan struct{}),
+		B:       nil,
+		WaitFor: nil,
 		Round:   uint64(b.Round),
+		Error:   b.Error,
 	}
-	close(be.WaitFor)
-	if ok, _ := bc.c.ContainsOrAdd(be.Round, be); ok {
-		//already in the cache
-		if e, found := bc.c.Peek(be.Round); found {
-			if e.(*BlockEntry).B == nil && e.(*BlockEntry).WaitFor != nil {
-				e.(*BlockEntry).B = be.B
-				//notify waiters
-				close(e.(*BlockEntry).WaitFor)
+	if b.Error != nil {
+		be.B = b
+	}
+	if e, found, _ := bc.c.PeekOrAdd(be.Round, be); found {
+		fbe := e.(*BlockEntry)
+		fbe.Lock()
+		//If the block is not cached yet
+		if fbe.B == nil {
+			//If we have block data
+			if b.Error == nil {
+				fbe.B = b
+				logrus.Debugf("Added block %d to cache %s", b.Round, bc.name)
+			} else {
+				//Or this is just an error
+				logrus.Debugf("Added block %d to cache %s with err %s", b.Round, bc.name, b.Error)
+				fbe.Error = b.Error
 			}
 		}
+		//notify waiters
+		if (fbe.B != nil || fbe.Error != nil) && fbe.WaitFor != nil {
+			logrus.Debugf("notifying watchers for block %d", b.Round)
+			close(fbe.WaitFor)
+			fbe.WaitFor = nil
+		}
+		fbe.Unlock()
 	}
-	if bc.last < b.Round {
+	if bc.last < b.Round && b.Error == nil {
 		bc.last = b.Round
 	}
 }
 
-func (bc *BlockCache) tryGetBlock(round uint64) (*blockfetcher.BlockWrap, bool) {
-	if be, ok := bc.c.Get(round); ok {
-		bw := be.(*BlockEntry).B
-		return bw, true
-	}
-	return nil, false
-}
-
 func (bc *BlockCache) IsBlockPromised(round uint64) bool {
-	if be, ok := bc.c.Get(round); ok {
-		return be.(*BlockEntry).B == nil
+	if _, ok := bc.c.Peek(round); ok {
+		return true
 	}
 	return false
 }
 
-func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, bool) {
+func (bc *BlockCache) IsBlockCached(round uint64) bool {
+	if be, ok := bc.c.Peek(round); ok {
+		be.(*BlockEntry).RLock()
+		defer be.(*BlockEntry).RUnlock()
+		return be.(*BlockEntry).B != nil
+	}
+	return false
+}
+
+func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, bool, error) {
 	if item, ok := bc.c.Get(round); ok {
 		be := item.(*BlockEntry)
+		be.RLock()
+		if be.Error != nil {
+			be.RUnlock()
+			return nil, false, be.Error
+		}
 		if be.B != nil {
-			return be.B, true
+			be.RUnlock()
+			return be.B, true, nil
+		}
+		wf := be.WaitFor
+		be.RUnlock()
+		if wf == nil {
+			return nil, false, errors.New("block not scheduled for load")
 		}
 		select {
-		case <-be.WaitFor:
+		case <-wf:
 		case <-ctx.Done():
 		}
-		return be.B, true
+		if ctx.Err() != nil {
+			return nil, false, ctx.Err()
+		}
+		be.RLock()
+		defer be.RUnlock()
+		return be.B, true, nil
 	}
-	return nil, false
+	return nil, false, nil
 }

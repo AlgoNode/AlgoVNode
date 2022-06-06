@@ -16,6 +16,7 @@ type BlockWrap struct {
 	BlockJsonNode string
 	Src           string
 	CachedAt      time.Time
+	Error         error
 }
 
 type BlockFetcher interface {
