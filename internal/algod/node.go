@@ -64,6 +64,20 @@ func (s ANState) String() string {
 	}
 }
 
+type T_RttEwma float32
+
+func (s *T_RttEwma) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf("\"%.1f\"", *s)), nil
+}
+
+func (s *T_RttEwma) String() string {
+	return fmt.Sprintf("%.1f", *s)
+}
+
+func (s *ANState) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + s.String() + "\""), nil
+}
+
 type Node struct {
 	sync.Mutex
 	cfg         *config.NodeCfg
@@ -187,6 +201,8 @@ func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
 		lr = node.cluster.GetLatestRound()
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
+			node.log.WithError(err).Warn("updateStatusAfter")
+			node.setState(AnsFailing, err.Error())
 			return false, err
 		}
 		nodeStatus = &ns
@@ -225,7 +241,7 @@ func isFatalAPIError(err error) bool {
 func (node *Node) fetchBlockRaw(ctx context.Context, round uint64) bool {
 	block := new(rpcs.EncodedBlockCert)
 	var rawBlock []byte
-	node.log.Infof("Fetching block %d", round)
+	node.log.Debugf("Fetching block %d", round)
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		start := time.Now()
 		rb, err := node.algodClient.BlockRaw(round).Do(ctx)
@@ -283,7 +299,7 @@ func (node *Node) Monitor(ctx context.Context) {
 				break
 			}
 		} else {
-			node.log.Debugf("Skipping already fetched block %d", clr)
+			node.log.Tracef("Skipping already fetched block %d", clr)
 		}
 	}
 }
@@ -340,33 +356,35 @@ func (node *Node) BlockSinkError(round uint64, err error) {
 }
 
 func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool {
-	if node.cluster.SetLatestRound(uint64(block.Block.BlockHeader.Round), node) {
+	round := uint64(block.Block.BlockHeader.Round)
+	cluster := node.cluster
+	if cluster.SetLatestRound(round, node) {
 		//we won the race
 		bw, err := blockfetcher.MakeBlockWrap(node.cfg.Id, block, blockRaw)
 		if err != nil {
 			node.log.WithError(err).Errorf("Error making blockWrap")
 			return false
 		}
-		if node.cluster.ucache != nil {
-			node.cluster.ucache.Sink <- bw
-			node.log.Infof("Block %d is now lastest, sd:%d", block.Block.BlockHeader.Round, len(node.cluster.ucache.Sink))
+		if cluster.ucache != nil {
+			cluster.ucache.Sink <- bw
+			node.log.Infof("Block %d is now latest, sd:%d", round, len(cluster.ucache.Sink))
 		} else {
-			node.log.Errorf("Block %d discarded, no sink", block.Block.BlockHeader.Round)
+			node.log.Errorf("Block %d discarded, no sink", round)
 		}
 		return true
 	}
-	if !node.cluster.isBlockCached(uint64(block.Block.BlockHeader.Round)) {
+	if !cluster.isBlockCached(round) {
 		bw, err := blockfetcher.MakeBlockWrap(node.cfg.Id, block, blockRaw)
 		if err != nil {
 			node.log.WithError(err).Errorf("Error making blockWrap")
 			return false
 		}
-		if node.cluster.ucache != nil {
-			node.cluster.ucache.Sink <- bw
-			node.log.Tracef("Block %d sent to cache, sd:%d", block.Block.BlockHeader.Round, len(node.cluster.ucache.Sink))
+		if cluster.ucache != nil {
+			cluster.ucache.Sink <- bw
+			node.log.Tracef("Block %d sent to cache, sd:%d", round, len(cluster.ucache.Sink))
 			return true
 		} else {
-			node.log.Errorf("Block %d discarded, no sink", block.Block.BlockHeader.Round)
+			node.log.Errorf("Block %d discarded, no sink", round)
 		}
 	}
 	return false

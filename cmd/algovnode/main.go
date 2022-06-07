@@ -29,13 +29,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func init() {
-	logrus.SetFormatter(&logrus.JSONFormatter{})
-	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.DebugLevel)
-}
-
 func main() {
+
 	log := logrus.WithFields(logrus.Fields{})
 
 	//load config
@@ -44,6 +39,7 @@ func main() {
 		log.WithError(err).Error("Loading config")
 		return
 	}
+	setLogging(&cfg.Virtual.Logging)
 
 	//make us a nice cancellable context
 	//set Ctrl-C as the cancell trigger

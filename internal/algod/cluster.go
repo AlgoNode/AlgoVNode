@@ -78,7 +78,7 @@ func (gs *NodeCluster) broadcastListener(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case status := <-ch:
-			gs.log.Debugf("Cluster is at round %d", status.(*models.NodeStatus).LastRound)
+			gs.log.Tracef("Cluster is at round %d", status.(*models.NodeStatus).LastRound)
 		}
 	}
 }
@@ -243,7 +243,8 @@ func (gs *NodeCluster) addNode(ctx context.Context, cfg *config.NodeCfg) error {
 		cfg:      cfg,
 		genesis:  "",
 	}
-	node.log = gs.log.WithFields(logrus.Fields{"nodeId": cfg.Id, "state": &node.state, "rttMs": &node.rttEwma})
+
+	node.log = gs.log.WithFields(logrus.Fields{"nodeId": cfg.Id, "state": &node.state, "rttMs": (*T_RttEwma)(&node.rttEwma)})
 	gs.nodes = append(gs.nodes, node)
 	return node.Start(ctx)
 }

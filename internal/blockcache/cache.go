@@ -64,10 +64,10 @@ func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {
 			//If we have block data
 			if b.Error == nil {
 				fbe.B = b
-				logrus.Debugf("Added block %d to cache %s", b.Round, bc.name)
+				logrus.Tracef("Added block %d to cache %s", b.Round, bc.name)
 			} else {
 				//Or this is just an error
-				logrus.Debugf("Added block %d to cache %s with err %s", b.Round, bc.name, b.Error)
+				logrus.Infof("Added block %d to cache %s with err %s", b.Round, bc.name, b.Error)
 				fbe.Error = b.Error
 			}
 		}

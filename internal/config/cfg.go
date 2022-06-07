@@ -50,6 +50,12 @@ type VirtCfg struct {
 	Cache     int        `json:"cache"`
 	RateLimit int        `json:"ratelimit"`
 	Tokens    []string   `json:"tokens"`
+	Logging   LoggingCfg `json:"logging"`
+}
+
+type LoggingCfg struct {
+	Level  string `json:"level"`
+	Format string `json:"format"`
 }
 
 type AlgoVNodeConfig struct {

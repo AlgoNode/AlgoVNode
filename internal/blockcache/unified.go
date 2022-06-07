@@ -48,7 +48,7 @@ type UnifiedBlockCache struct {
 
 //getCache returns pointer to a block cache appropriate for the block round
 func (ubc *UnifiedBlockCache) getCacheWithPeek(round uint64) *BlockCache {
-	if ubc.archCache.IsBlockPromised(round) {
+	if round == 0 || ubc.archCache.IsBlockPromised(round) {
 		return ubc.archCache
 	}
 	if round > 0 && (ubc.catchupCache.last == 0 || round > ubc.catchupCache.last-CatchupSize) {
