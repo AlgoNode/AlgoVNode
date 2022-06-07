@@ -241,7 +241,7 @@ func isFatalAPIError(err error) bool {
 func (node *Node) fetchBlockRaw(ctx context.Context, round uint64) bool {
 	block := new(rpcs.EncodedBlockCert)
 	var rawBlock []byte
-	node.log.Debugf("Fetching block %d", round)
+	start := time.Now()
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		start := time.Now()
 		rb, err := node.algodClient.BlockRaw(round).Do(ctx)
@@ -267,6 +267,7 @@ func (node *Node) fetchBlockRaw(ctx context.Context, round uint64) bool {
 		node.BlockSinkError(round, err)
 		return false
 	}
+	node.log.Debugf("Fetched block %d in %.1fms", round, 0.001*float32(time.Since(start).Microseconds()))
 	node.BlockSink(block, rawBlock)
 	return true
 }
@@ -367,7 +368,7 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 		}
 		if cluster.ucache != nil {
 			cluster.ucache.Sink <- bw
-			node.log.Infof("Block %d is now latest, sd:%d", round, len(cluster.ucache.Sink))
+			node.log.Infof("Block %d is now latest", round)
 		} else {
 			node.log.Errorf("Block %d discarded, no sink", round)
 		}
@@ -381,7 +382,7 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 		}
 		if cluster.ucache != nil {
 			cluster.ucache.Sink <- bw
-			node.log.Tracef("Block %d sent to cache, sd:%d", round, len(cluster.ucache.Sink))
+			node.log.Tracef("Block %d sent to cache", round)
 			return true
 		} else {
 			node.log.Errorf("Block %d discarded, no sink", round)

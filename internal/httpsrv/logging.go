@@ -41,6 +41,7 @@ func (logger *loggerMiddleware) handler(next echo.HandlerFunc) echo.HandlerFunc 
 			"ua":     req.UserAgent(),
 			"reqMs":  time.Since(start).Milliseconds(),
 			"bytes":  res.Size,
+			"path":   req.URL.Path,
 		}).Info("API")
 
 		return

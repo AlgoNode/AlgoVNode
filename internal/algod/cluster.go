@@ -101,7 +101,6 @@ func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *mo
 		case status := <-ch:
 			nodeStatus := status.(*models.NodeStatus)
 			if nodeStatus.LastRound > round {
-				gs.log.Debugf("w4ba: %#v", nodeStatus)
 				return nodeStatus
 			}
 		}
@@ -192,7 +191,7 @@ func (gs *NodeCluster) stateChangeMonitor(ctx context.Context) {
 		select {
 		case <-gs.cState:
 			gs.updateNodeLists()
-			gs.log.Warnf("Cluster state updated, synced nodes: %d ", len(gs.catchupNodes))
+			gs.log.Warnf("Cluster state updated, synced nodes: %d+%d ", len(gs.catchupNodes), len(gs.archNodes))
 		case <-ctx.Done():
 			return
 		}
