@@ -9,12 +9,14 @@ import (
 
 type loggerMiddleware struct {
 	log *log.Logger
+	msg string
 }
 
 // MakeLogger initializes a logger echo.MiddlewareFunc
-func MakeLogger(log *log.Logger) echo.MiddlewareFunc {
+func MakeLogger(log *log.Logger, msg string) echo.MiddlewareFunc {
 	logger := loggerMiddleware{
 		log: log,
+		msg: msg,
 	}
 
 	return logger.handler
@@ -42,7 +44,7 @@ func (logger *loggerMiddleware) handler(next echo.HandlerFunc) echo.HandlerFunc 
 			"reqMs":  time.Since(start).Milliseconds(),
 			"bytes":  res.Size,
 			"path":   req.URL.Path,
-		}).Info("API")
+		}).Info(logger.msg)
 
 		return
 	}

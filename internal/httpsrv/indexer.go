@@ -20,7 +20,7 @@ import (
 func NewIndexerProxy(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg *config.IdxCfg, log *logrus.Entry) *http.Server {
 	e := echo.New()
 
-	e.Use(MakeLogger(log.Logger))
+	e.Use(MakeLogger(log.Logger, "Indexer API"))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 	//TODO make this configurable

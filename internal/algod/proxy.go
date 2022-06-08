@@ -62,8 +62,8 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	//parallel catchup queries
 	var bodyReader io.Reader
 	url := node.cfg.Address + oreq.RequestURI
-	timeout := time.Millisecond * time.Duration(250+int64(node.rttEwma))
-	//falback
+	timeout := time.Millisecond * (250 + 3*time.Duration(int64(node.rttEwma)))
+	//fallback - last try gets more time
 	if proxyStatuses == nil {
 		timeout = time.Second * 10
 	}

@@ -70,7 +70,7 @@ func (ubc *UnifiedBlockCache) promiseBlock(ctx context.Context, round uint64) *B
 	logrus.Debugf("Promising block %d in %s cache", round, c.name)
 	be := c.promiseBlock(round)
 	go func() {
-		ubc.bf.LoadBlockSync(ctx, round)
+		ubc.bf.LoadBlockSync(context.Background(), round)
 	}()
 
 	return be

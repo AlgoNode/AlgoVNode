@@ -20,7 +20,7 @@ import (
 func NewAlgodProxy(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg *config.AlgodCfg, log *logrus.Entry) *http.Server {
 	e := echo.New()
 
-	e.Use(MakeLogger(log.Logger))
+	e.Use(MakeLogger(log.Logger, "Algod API"))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 	//TODO make this configurable

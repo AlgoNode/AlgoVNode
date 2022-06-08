@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -43,7 +44,7 @@ func main() {
 	setLogging(&cfg.Logging)
 
 	//make us a nice cancellable context
-	//set Ctrl-C as the cancell trigger
+	//set Ctrl-C as the cancel trigger
 	ctx, cf := context.WithCancel(context.Background())
 	defer cf()
 	{
@@ -69,11 +70,27 @@ func main() {
 	}
 	cluster.WaitForFatal(ctx)
 
+	//2 seconds to kill all http servers
 	dctx, cf2 := context.WithTimeout(context.Background(), time.Second*2)
-	algodSrv.Shutdown(dctx)
-	if idxSrv != nil {
-		idxSrv.Shutdown(dctx)
-	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		algodSrv.Shutdown(dctx)
+		log.Error("Algod virtual server stopped")
+	}()
+
+	go func() {
+		defer wg.Done()
+		if idxSrv != nil {
+			idxSrv.Shutdown(dctx)
+		}
+		log.Error("Indexer virtual server stopped")
+	}()
+
+	wg.Wait()
+
 	cf2()
 
 }

@@ -201,8 +201,10 @@ func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
 		lr = node.cluster.GetLatestRound()
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
-			node.log.WithError(err).Warn("updateStatusAfter")
-			node.setState(AnsFailing, err.Error())
+			if err != context.Canceled {
+				node.log.WithError(err).Warn("updateStatusAfter")
+				node.setState(AnsFailing, err.Error())
+			}
 			return false, err
 		}
 		nodeStatus = &ns
@@ -382,12 +384,13 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 		}
 		if cluster.ucache != nil {
 			cluster.ucache.Sink <- bw
-			node.log.Tracef("Block %d sent to cache", round)
+			node.log.Debugf("Block %d sent to cache", round)
 			return true
 		} else {
 			node.log.Errorf("Block %d discarded, no sink", round)
 		}
 	}
+	node.log.Debugf("Block %d already in cache", round)
 	return false
 }
 

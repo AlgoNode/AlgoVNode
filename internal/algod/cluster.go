@@ -228,7 +228,7 @@ func (gs *NodeCluster) LoadBlockSync(ctx context.Context, round uint64) bool {
 			return true
 		}
 	}
-	gs.log.Errorf("all nodes unavailable to load block %d", round)
+	gs.log.Errorf("all archival nodes unavailable to load block %d", round)
 	return false
 }
 

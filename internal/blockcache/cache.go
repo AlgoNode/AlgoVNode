@@ -53,12 +53,13 @@ func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {
 		Round:   uint64(b.Round),
 		Error:   b.Error,
 	}
-	if b.Error != nil {
+	if b.Error == nil {
 		be.B = b
 	}
 	if e, found, _ := bc.c.PeekOrAdd(be.Round, be); found {
 		fbe := e.(*BlockEntry)
 		fbe.Lock()
+
 		//If the block is not cached yet
 		if fbe.B == nil {
 			//If we have block data
@@ -67,13 +68,15 @@ func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {
 				logrus.Tracef("Added block %d to cache %s", b.Round, bc.name)
 			} else {
 				//Or this is just an error
-				logrus.Infof("Added block %d to cache %s with err %s", b.Round, bc.name, b.Error)
-				fbe.Error = b.Error
+				if fbe.Error == nil {
+					logrus.Infof("Added block %d to cache %s with err %s", b.Round, bc.name, b.Error)
+					fbe.Error = b.Error
+				}
 			}
 		}
 		//notify waiters
 		if (fbe.B != nil || fbe.Error != nil) && fbe.WaitFor != nil {
-			logrus.Debugf("notifying watchers for block %d", b.Round)
+			logrus.Tracef("notifying watchers for block %d", b.Round)
 			close(fbe.WaitFor)
 			fbe.WaitFor = nil
 		}
@@ -105,11 +108,11 @@ func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher
 		be := item.(*BlockEntry)
 		be.RLock()
 		if be.Error != nil {
-			be.RUnlock()
+			defer be.RUnlock()
 			return nil, false, be.Error
 		}
 		if be.B != nil {
-			be.RUnlock()
+			defer be.RUnlock()
 			return be.B, true, nil
 		}
 		wf := be.WaitFor
@@ -126,6 +129,9 @@ func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher
 		}
 		be.RLock()
 		defer be.RUnlock()
+		if be.Error != nil {
+			return nil, false, be.Error
+		}
 		return be.B, true, nil
 	}
 	return nil, false, nil
