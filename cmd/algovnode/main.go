@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,7 +40,7 @@ func main() {
 		log.WithError(err).Error("Loading config")
 		return
 	}
-	setLogging(&cfg.Virtual.Logging)
+	setLogging(&cfg.Logging)
 
 	//make us a nice cancellable context
 	//set Ctrl-C as the cancell trigger
@@ -60,11 +61,19 @@ func main() {
 	cluster := algod.NewCluster(ctx, cache, cfg, log)
 	cache.SetBlockFetcher(cluster)
 
-	srv := httpsrv.New(ctx, cf, cache, cluster, cfg, log)
+	algodSrv := httpsrv.NewAlgodProxy(ctx, cf, cache, cluster, cfg.Algod, log)
+
+	var idxSrv *http.Server = nil
+	if cfg.Indexer != nil && cfg.Indexer.Enabled {
+		idxSrv = httpsrv.NewIndexerProxy(ctx, cf, cache, cluster, cfg.Indexer, log)
+	}
 	cluster.WaitForFatal(ctx)
 
 	dctx, cf2 := context.WithTimeout(context.Background(), time.Second*2)
-	srv.Shutdown(dctx)
+	algodSrv.Shutdown(dctx)
+	if idxSrv != nil {
+		idxSrv.Shutdown(dctx)
+	}
 	cf2()
 
 }

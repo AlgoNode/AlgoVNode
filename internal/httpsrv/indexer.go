@@ -17,7 +17,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg config.AlgoVNodeConfig, log *logrus.Entry) *http.Server {
+func NewIndexerProxy(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg *config.IdxCfg, log *logrus.Entry) *http.Server {
 	e := echo.New()
 
 	e.Use(MakeLogger(log.Logger))
@@ -27,13 +27,13 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 	e.Use(middleware.Gzip())
 
 	//TODO Ratelimiting
-	if cfg.Virtual.RateLimit > 0 {
-		e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(cfg.Virtual.RateLimit))))
+	if cfg.RateLimit > 0 {
+		e.Use(middleware.RateLimiter(middleware.NewRateLimiterMemoryStore(rate.Limit(cfg.RateLimit))))
 	}
 
-	middlewares := make([]echo.MiddlewareFunc, 0)
-	if len(cfg.Virtual.Tokens) > 0 {
-		middlewares = append(middlewares, MakeAuth("X-Algo-API-Token", cfg.Virtual.Tokens))
+	authMiddlewares := make([]echo.MiddlewareFunc, 0)
+	if len(cfg.Tokens) > 0 {
+		authMiddlewares = append(authMiddlewares, MakeAuth("X-Indexer-API-Token", cfg.Tokens))
 	}
 
 	api := ServerImplementation{
@@ -42,8 +42,7 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 		cluster: cluster,
 	}
 
-	RegisterHandlersAuth(e, &api, middlewares...)
-	RegisterHandlersNoAuth(e, &api)
+	RegisterIdxHandlers(e, &api, authMiddlewares...)
 
 	getctx := func(l net.Listener) context.Context {
 		return ctx
@@ -56,7 +55,7 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 	}
 
 	s := &http.Server{
-		Addr:        cfg.Virtual.Http.Listen,
+		Addr:        cfg.Http.Listen,
 		ReadTimeout: time.Second * 15,
 		// WriteTimeout:   time.Second * 15,
 		MaxHeaderBytes: 1 << 20,
@@ -64,7 +63,7 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 		Handler:        e,
 	}
 
-	if cfg.Virtual.Http.H2C {
+	if cfg.Http.H2C {
 		s.Handler = h2c.NewHandler(e, h2s)
 	}
 
@@ -73,7 +72,7 @@ func New(ctx context.Context, cancel context.CancelFunc, cache *blockcache.Unifi
 
 	go func() {
 		if err := s.ListenAndServe(); err != http.ErrServerClosed {
-			log.WithError(err).Errorf("Error listening on %s", cfg.Virtual.Http.Listen)
+			log.WithError(err).Errorf("Error listening on %s", cfg.Http.Listen)
 		}
 		cancel()
 	}()

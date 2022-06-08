@@ -21,6 +21,14 @@ type ServerImplementation struct {
 	cluster *algod.NodeCluster
 }
 
+type BlockFormat int64
+
+const (
+	BFMsgPack BlockFormat = iota
+	BFNodeJson
+	BFIdxJson
+)
+
 //TODO: tune this per endpoint
 var proxy404 = []int{200, 204, 400, 404}
 var proxy200 = []int{200, 204, 400}
@@ -78,34 +86,46 @@ func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 	return errors.New("no synced upstream nodes available")
 }
 
-func (si *ServerImplementation) blocksHandler(c echo.Context) error {
-	//TODO: 10 sec timeout
-	round := c.Param("round")
-	roundInt64, err := strconv.ParseInt(round, 10, 64)
-	if round == "" || err != nil || roundInt64 < 0 {
-		jsonError(c, http.StatusBadRequest, "Invalid round value")
-		return nil
-	}
+func (si *ServerImplementation) blockIdxHandlerWrap(c echo.Context) error {
 
-	format := "json"
-	err = echo.QueryParamsBinder(c).String("format", &format).BindError()
+	formatStr := "json"
+	err := echo.QueryParamsBinder(c).String("format", &formatStr).BindError()
 	if err != nil {
 		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter format: %s", err))
 		return nil
 	}
 
-	msgpack := false
-	format = strings.ToLower(format)
+	format := BFNodeJson
+	formatStr = strings.ToLower(formatStr)
 
-	switch format {
+	switch formatStr {
 	case "json":
-		msgpack = false
+		format = BFNodeJson
 	case "msgpack":
 		fallthrough
 	case "msgp":
-		msgpack = true
+		format = BFMsgPack
+	case "idx":
+		fallthrough
+	case "indexer":
+		format = BFIdxJson
 	default:
-		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format: %s", format))
+		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format: %s", formatStr))
+		return nil
+	}
+	return si.blocksHandler(c, format)
+}
+
+func (si *ServerImplementation) blockHandlerWrap(c echo.Context) error {
+	return si.blocksHandler(c, BFIdxJson)
+}
+
+func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat) error {
+
+	round := c.Param("round")
+	roundInt64, err := strconv.ParseInt(round, 10, 64)
+	if round == "" || err != nil || roundInt64 < 0 {
+		jsonError(c, http.StatusBadRequest, "Invalid round value")
 		return nil
 	}
 
@@ -126,11 +146,14 @@ func (si *ServerImplementation) blocksHandler(c echo.Context) error {
 
 	if block != nil {
 		//block.BlockJsonNode
-		if msgpack {
+		switch format {
+		case BFMsgPack:
 			c.Response().Header().Set("X-Algorand-Struct", "block-v1")
 			c.Blob(http.StatusOK, "application/msgpack", block.BlockMsgPack)
-		} else {
+		case BFNodeJson:
 			c.JSONBlob(http.StatusOK, []byte(block.BlockJsonNode))
+		case BFIdxJson:
+			c.JSONBlob(http.StatusOK, []byte(block.BlockJsonIdx))
 		}
 		return nil
 	}
@@ -138,9 +161,9 @@ func (si *ServerImplementation) blocksHandler(c echo.Context) error {
 	return c.JSON(http.StatusNoContent, nil)
 }
 
-func RegisterHandlersAuth(r *echo.Echo, si *ServerImplementation, m ...echo.MiddlewareFunc) {
+func RegisterAlgodHandlers(r *echo.Echo, si *ServerImplementation, m ...echo.MiddlewareFunc) {
 	r.GET("/v2/status/wait-for-block-after/:round", si.waitHandler, m...)
-	r.GET("/v2/blocks/:round", si.blocksHandler, m...)
+	r.GET("/v2/blocks/:round", si.blockHandlerWrap, m...)
 
 	//TODO: handle this endpoint internally
 	r.GET("/v2/blocks/:round/transactions", si.defaultHandler, m...)
@@ -149,8 +172,15 @@ func RegisterHandlersAuth(r *echo.Echo, si *ServerImplementation, m ...echo.Midd
 	r.POST("/*", si.defaultHandler, m...)
 	r.HEAD("/*", si.defaultHandler, m...)
 	r.OPTIONS("/*", si.defaultHandler, m...)
+
+	//no auth
+	r.GET("/health", si.defaultHandler)
 }
 
-func RegisterHandlersNoAuth(r *echo.Echo, si *ServerImplementation) {
-	r.GET("/health", si.defaultHandler)
+func RegisterIdxHandlers(r *echo.Echo, si *ServerImplementation, m ...echo.MiddlewareFunc) {
+	r.GET("/v2/blocks/:round", si.blockIdxHandlerWrap, m...)
+
+	//no auth
+	//TODO: implement me please
+	//r.GET("/v2/status", si.statusIdxHandler)
 }

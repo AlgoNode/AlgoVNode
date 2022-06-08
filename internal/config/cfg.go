@@ -43,14 +43,21 @@ type HttpsCfg struct {
 	Enabled bool   `json:"enabled"`
 }
 
-type VirtCfg struct {
+type AlgodCfg struct {
 	Nodes     []*NodeCfg `json:"nodes"`
 	Http      *HttpCfg   `json:"http"`
 	Https     *HttpsCfg  `json:"https"`
 	Cache     int        `json:"cache"`
 	RateLimit int        `json:"ratelimit"`
 	Tokens    []string   `json:"tokens"`
-	Logging   LoggingCfg `json:"logging"`
+}
+
+type IdxCfg struct {
+	Http      *HttpCfg  `json:"http"`
+	Https     *HttpsCfg `json:"https"`
+	RateLimit int       `json:"ratelimit"`
+	Tokens    []string  `json:"tokens"`
+	Enabled   bool      `json:"enabled"`
 }
 
 type LoggingCfg struct {
@@ -59,11 +66,23 @@ type LoggingCfg struct {
 }
 
 type AlgoVNodeConfig struct {
-	Virtual *VirtCfg `json:"virtual"`
+	Logging LoggingCfg `json:"logging"`
+	Algod   *AlgodCfg  `json:"algod"`
+	Indexer *IdxCfg    `json:"indexer"`
 }
 
 var defaultConfig = AlgoVNodeConfig{
-	Virtual: &VirtCfg{
+	Indexer: &IdxCfg{
+		Enabled: true,
+		Http: &HttpCfg{
+			Listen:  ":18980",
+			Enabled: true,
+			H2C:     true,
+		},
+		Tokens: make([]string, 0),
+	},
+
+	Algod: &AlgodCfg{
 		Http: &HttpCfg{
 			Listen:  ":18090",
 			Enabled: true,
@@ -80,10 +99,10 @@ func LoadConfig() (cfg AlgoVNodeConfig, err error) {
 	cfg = defaultConfig
 	err = utils.LoadJSONCFromFile(*cfgFile, &cfg)
 
-	if cfg.Virtual == nil {
+	if cfg.Algod == nil {
 		return cfg, errors.New("missing algod config")
 	}
-	if len(cfg.Virtual.Nodes) == 0 {
+	if len(cfg.Algod.Nodes) == 0 {
 		return cfg, errors.New("configure at least one node")
 	}
 	return cfg, err

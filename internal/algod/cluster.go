@@ -198,7 +198,7 @@ func (gs *NodeCluster) stateChangeMonitor(ctx context.Context) {
 	}
 }
 
-//LoadBlock does
+//LoadBlockSync blocks until the round is loaded into cache or the load fails
 func (gs *NodeCluster) LoadBlockSync(ctx context.Context, round uint64) bool {
 	//TODO
 	//handle future rounds
@@ -263,7 +263,7 @@ func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg c
 		broadcaster:  broadcast.NewBroadcaster(1),
 	}
 
-	for _, n := range cfg.Virtual.Nodes {
+	for _, n := range cfg.Algod.Nodes {
 		cluster.addNode(ctx, n)
 	}
 
