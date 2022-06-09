@@ -123,8 +123,6 @@ func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher
 		select {
 		case <-wf:
 		case <-ctx.Done():
-		}
-		if ctx.Err() != nil {
 			return nil, false, ctx.Err()
 		}
 		be.RLock()

@@ -351,11 +351,11 @@ type NodeStatus struct {
 }
 
 func (node *Node) BlockSinkError(round uint64, err error) {
-	if node.cluster.ucache.Sink != nil {
-		node.cluster.ucache.Sink <- &blockfetcher.BlockWrap{
+	if node.cluster.ucache != nil {
+		node.cluster.ucache.AddBlock(&blockfetcher.BlockWrap{
 			Round: round,
 			Error: err,
-		}
+		})
 	}
 }
 
@@ -370,7 +370,7 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 			return false
 		}
 		if cluster.ucache != nil {
-			cluster.ucache.Sink <- bw
+			cluster.ucache.AddBlock(bw)
 			node.log.Infof("Block %d is now latest", round)
 		} else {
 			node.log.Errorf("Block %d discarded, no sink", round)
@@ -384,7 +384,7 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 			return false
 		}
 		if cluster.ucache != nil {
-			cluster.ucache.Sink <- bw
+			cluster.ucache.AddBlock(bw)
 			node.log.Debugf("Block %d sent to cache", round)
 			return true
 		} else {

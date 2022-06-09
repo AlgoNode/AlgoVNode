@@ -43,7 +43,7 @@ type UnifiedBlockCache struct {
 	// bf holds pointer to a block fetch interface used in case of cache miss
 	bf blockfetcher.BlockFetcher
 	// Sink exposes block sink for the cache
-	Sink chan *blockfetcher.BlockWrap
+	//	Sink chan *blockfetcher.BlockWrap
 }
 
 //getCache returns pointer to a block cache appropriate for the block round
@@ -58,14 +58,14 @@ func (ubc *UnifiedBlockCache) getCacheWithPeek(round uint64) *BlockCache {
 }
 
 //addBlock adds a wrapped block to the unified block cache
-func (ubc *UnifiedBlockCache) addBlock(b *blockfetcher.BlockWrap) {
+func (ubc *UnifiedBlockCache) AddBlock(b *blockfetcher.BlockWrap) {
 	ubc.Lock()
 	defer ubc.Unlock()
 	//todo - which cache
 	ubc.getCacheWithPeek(b.Round).addBlock(b)
 }
 
-func (ubc *UnifiedBlockCache) promiseBlock(ctx context.Context, round uint64) *BlockEntry {
+func (ubc *UnifiedBlockCache) PromiseBlock(round uint64) *BlockEntry {
 	c := ubc.getCacheWithPeek(round)
 	logrus.Debugf("Promising block %d in %s cache", round, c.name)
 	be := c.promiseBlock(round)
@@ -88,7 +88,7 @@ func (ubc *UnifiedBlockCache) GetBlock(ctx context.Context, round uint64) (*bloc
 	if bw, _, _ := ubc.archCache.getBlock(ctx, round); bw != nil {
 		return bw, nil
 	}
-	ubc.promiseBlock(ctx, round)
+	ubc.PromiseBlock(round)
 	if bw, _, err := ubc.catchupCache.getBlock(ctx, round); bw != nil || err != nil {
 		return bw, err
 	}
@@ -103,27 +103,15 @@ func (ubc *UnifiedBlockCache) SetBlockFetcher(bf blockfetcher.BlockFetcher) {
 	ubc.bf = bf
 }
 
-//New starts background block processing goroutine and returns new Unified Block Cache
+//New returns new Unified Block Cache struct
 func New(ctx context.Context) *UnifiedBlockCache {
 	cc, _ := cache.New(CatchupSize)
 	ca, _ := cache.New(ArchSize)
-	bs := make(chan *blockfetcher.BlockWrap, CatchupSize)
 
 	ubc := &UnifiedBlockCache{
 		catchupCache: &BlockCache{c: cc, last: 0, name: "catchup"},
 		archCache:    &BlockCache{c: ca, last: 0, name: "archive"},
-		Sink:         bs,
 	}
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case b := <-bs:
-				ubc.addBlock(b)
-			}
-		}
-	}()
 	return ubc
 }

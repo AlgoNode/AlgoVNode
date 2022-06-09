@@ -132,7 +132,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 	timeoutCtx, cancel := context.WithTimeout(c.Request().Context(), time.Second*10)
 	defer cancel()
 
-	block, err := si.cluster.GetBlock(timeoutCtx, uint64(roundInt64))
+	block, err := si.cluster.GetBlock(timeoutCtx, uint64(roundInt64), format == BFMsgPack)
 
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		jsonError(c, http.StatusServiceUnavailable, "timeout")

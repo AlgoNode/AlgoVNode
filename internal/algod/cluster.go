@@ -45,6 +45,8 @@ type NodeCluster struct {
 	archNodes    []*Node
 	log          *logrus.Entry
 	broadcaster  broadcast.Broadcaster
+	bpSink       chan uint64
+	bps          []*BlockPrefetch
 }
 
 //GetLatestRound returns latest round available on the cluster
@@ -149,9 +151,12 @@ func (gs *NodeCluster) GetSyncedNodesByRTT() []*Node {
 	return nodes
 }
 
-func (gs *NodeCluster) GetBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
+func (gs *NodeCluster) GetBlock(ctx context.Context, round uint64, msgp bool) (*blockfetcher.BlockWrap, error) {
 	if gs.isBlockInTheFuture(round) {
 		return nil, errors.New("failed to retrieve information from the ledger")
+	}
+	if msgp {
+		gs.prefetchNotify(round)
 	}
 	return gs.ucache.GetBlock(ctx, round)
 }
@@ -270,6 +275,8 @@ func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg c
 		archNodes:    make([]*Node, 0),
 		cState:       make(chan struct{}, 100),
 		broadcaster:  broadcast.NewBroadcaster(1),
+		bpSink:       make(chan uint64, 100),
+		bps:          make([]*BlockPrefetch, 0),
 	}
 
 	for _, n := range cfg.Algod.Nodes {
@@ -279,6 +286,8 @@ func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg c
 	go cluster.broadcastListener(ctx)
 
 	go cluster.stateChangeMonitor(ctx)
+
+	go cluster.prefetchMonitor(ctx)
 	return cluster
 
 }

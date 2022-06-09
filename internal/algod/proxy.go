@@ -37,13 +37,13 @@ func proxyStatus(proxyStatuses []int, status int) bool {
 	return false
 }
 
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
-}
+// func copyHeader(dst, src http.Header) {
+// 	for k, vv := range src {
+// 		for _, v := range vv {
+// 			dst.Add(k, v)
+// 		}
+// 	}
+// }
 
 func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, error) {
 
@@ -52,13 +52,9 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	oreq := c.Request()
 	res := c.Response()
 
-	//TODO: keep-alive ??
-	//ratelimiter
-	//timeout
 	//sandboxed timeout
 	//parallel calls to all catchup
-	//constant scanning on all catchup
-	//direct query relay nodes for block ranges
+	//direct query relay nodes for block ranges (gossip?)
 	//parallel catchup queries
 	var bodyReader io.Reader
 	url := node.cfg.Address + oreq.RequestURI
