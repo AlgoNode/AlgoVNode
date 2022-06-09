@@ -81,6 +81,7 @@ func (node *Node) ProxyHTTP(c echo.Context, proxyStatuses []int) (bool, int, err
 	if len(node.cfg.Token) > 0 {
 		req.Header.Set("X-Algo-API-Token", node.cfg.Token)
 	}
+	req.Header.Set("User-Agent", NODE_TAG)
 	start := time.Now()
 	resp, err := node.httpClient.Do(req)
 	if err != nil {

@@ -149,7 +149,10 @@ func (gs *NodeCluster) GetSyncedNodesByRTT() []*Node {
 	return nodes
 }
 
-func (gs *NodeCluster) getBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
+func (gs *NodeCluster) GetBlock(ctx context.Context, round uint64) (*blockfetcher.BlockWrap, error) {
+	if gs.isBlockInTheFuture(round) {
+		return nil, errors.New("failed to retrieve information from the ledger")
+	}
 	return gs.ucache.GetBlock(ctx, round)
 }
 
@@ -196,6 +199,12 @@ func (gs *NodeCluster) stateChangeMonitor(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (gs *NodeCluster) isBlockInTheFuture(round uint64) bool {
+	gs.Lock()
+	defer gs.Unlock()
+	return round > gs.latestRound
 }
 
 //LoadBlockSync blocks until the round is loaded into cache or the load fails

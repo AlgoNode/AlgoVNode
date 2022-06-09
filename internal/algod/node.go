@@ -320,7 +320,8 @@ func (node *Node) mainLoop(ctx context.Context) {
 
 func (node *Node) Start(ctx context.Context) error {
 	hdrs := []*common.Header{
-		{Key: "Referer", Value: "http://AlgoNode.VN1"},
+		{Key: "Referer", Value: "http://" + NODE_TAG},
+		{Key: "User-Agent", Value: NODE_TAG},
 	}
 	aClient, err := algod.MakeClientWithHeaders(node.cfg.Address, node.cfg.Token, hdrs)
 	if err != nil {

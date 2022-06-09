@@ -86,7 +86,7 @@ func (si *ServerImplementation) defaultHandler(c echo.Context) error {
 	return errors.New("no synced upstream nodes available")
 }
 
-func (si *ServerImplementation) blockIdxHandlerWrap(c echo.Context) error {
+func (si *ServerImplementation) blockHandlerWrap(c echo.Context) error {
 
 	formatStr := "json"
 	err := echo.QueryParamsBinder(c).String("format", &formatStr).BindError()
@@ -116,7 +116,7 @@ func (si *ServerImplementation) blockIdxHandlerWrap(c echo.Context) error {
 	return si.blocksHandler(c, format)
 }
 
-func (si *ServerImplementation) blockHandlerWrap(c echo.Context) error {
+func (si *ServerImplementation) blockIdxHandlerWrap(c echo.Context) error {
 	return si.blocksHandler(c, BFIdxJson)
 }
 
@@ -132,7 +132,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 	timeoutCtx, cancel := context.WithTimeout(c.Request().Context(), time.Second*10)
 	defer cancel()
 
-	block, err := si.ucache.GetBlock(timeoutCtx, uint64(roundInt64))
+	block, err := si.cluster.GetBlock(timeoutCtx, uint64(roundInt64))
 
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		jsonError(c, http.StatusServiceUnavailable, "timeout")
@@ -140,7 +140,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 	}
 
 	if err != nil {
-		jsonError(c, http.StatusServiceUnavailable, err.Error())
+		jsonError(c, http.StatusInternalServerError, err.Error())
 		return nil
 	}
 
