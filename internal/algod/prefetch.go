@@ -40,7 +40,6 @@ func (gs *NodeCluster) prefetchPrune() {
 	expire := time.Now().Add(time.Minute * time.Duration(-1))
 	//Optimistic loop
 	for _, b := range gs.bps {
-		gs.log.Tracef("%s after %s, now: %s ?", b.LastPreAt, expire, time.Now())
 		if b.LastPreAt.Before(expire) {
 			nbps := make([]*BlockPrefetch, 0)
 			//We have expired prefetchers - do full prunning

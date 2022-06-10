@@ -86,11 +86,14 @@ func (gs *NodeCluster) broadcastListener(ctx context.Context) {
 }
 
 func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *models.NodeStatus {
+	var lrStatus *models.NodeStatus
 	gs.Lock()
 	lr := gs.latestRound
-	lrStatus := gs.lastSrc.lastStatus
+	if gs.lastSrc != nil {
+		lrStatus = gs.lastSrc.lastStatus
+	}
 	gs.Unlock()
-	if lr > round {
+	if lrStatus != nil && lr > round {
 		return lrStatus
 	}
 	ch := make(chan interface{})
@@ -218,7 +221,7 @@ func (gs *NodeCluster) LoadBlockSync(ctx context.Context, round uint64) bool {
 	//handle future rounds
 	//handle parallel limit
 	if round > gs.latestRound {
-		gs.fatalErr <- errors.New("tried to load future block")
+		gs.SinkError(round, nil)
 		return false
 	}
 	if round > gs.latestRound-blockcache.CatchupSize+4 {
@@ -262,6 +265,18 @@ func (gs *NodeCluster) addNode(ctx context.Context, cfg *config.NodeCfg) error {
 	return node.Start(ctx)
 }
 
+func (gs *NodeCluster) SinkError(round uint64, err error) {
+	if err == nil {
+		err = errors.New("failed to retrieve information from the ledger")
+	}
+	if gs.ucache != nil {
+		gs.ucache.AddBlock(&blockfetcher.BlockWrap{
+			Round: round,
+			Error: err,
+		})
+	}
+}
+
 //NewCluster instantiates all configured nodes and returns new node cluster object
 func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig, log *logrus.Entry) *NodeCluster {
 	cluster := &NodeCluster{
@@ -288,6 +303,7 @@ func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg c
 	go cluster.stateChangeMonitor(ctx)
 
 	go cluster.prefetchMonitor(ctx)
+
 	return cluster
 
 }

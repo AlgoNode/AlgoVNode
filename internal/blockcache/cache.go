@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/algonode/algovnode/internal/blockfetcher"
 	cache "github.com/hashicorp/golang-lru"
@@ -37,11 +38,16 @@ func (bc *BlockCache) promiseBlock(round uint64) *BlockEntry {
 		if bentry.Error != nil {
 			//FIXME: danger
 			//rearm
+			logrus.Tracef("Rearming cache entry for block %d", round)
 			bentry.WaitFor = make(chan struct{})
 			bentry.Error = nil
+		} else {
+			logrus.Tracef("Block %d already promised", round)
 		}
 		bentry.Unlock()
 		return bentry
+	} else {
+		logrus.Tracef("New promise for block %d", round)
 	}
 	return be
 }
@@ -65,14 +71,16 @@ func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {
 			//If we have block data
 			if b.Error == nil {
 				fbe.B = b
-				logrus.Tracef("Added block %d to cache %s", b.Round, bc.name)
+				logrus.Tracef("Delivered block %d to cache %s", b.Round, bc.name)
 			} else {
 				//Or this is just an error
 				if fbe.Error == nil {
-					logrus.Infof("Added block %d to cache %s with err %s", b.Round, bc.name, b.Error)
+					logrus.Infof("Delivered block %d to cache %s with err %s", b.Round, bc.name, b.Error)
 					fbe.Error = b.Error
 				}
 			}
+		} else {
+			logrus.Tracef("Block %d already cached in %s", b.Round, bc.name)
 		}
 		//notify waiters
 		if (fbe.B != nil || fbe.Error != nil) && fbe.WaitFor != nil {
@@ -81,6 +89,8 @@ func (bc *BlockCache) addBlock(b *blockfetcher.BlockWrap) {
 			fbe.WaitFor = nil
 		}
 		fbe.Unlock()
+	} else {
+		logrus.Tracef("Added block %d to cache %s ", b.Round, bc.name)
 	}
 	if bc.last < b.Round && b.Error == nil {
 		bc.last = b.Round
@@ -118,12 +128,23 @@ func (bc *BlockCache) getBlock(ctx context.Context, round uint64) (*blockfetcher
 		wf := be.WaitFor
 		be.RUnlock()
 		if wf == nil {
+			logrus.Tracef("block %d not loaded and not promised", round)
 			return nil, false, errors.New("block not scheduled for load")
 		}
-		select {
-		case <-wf:
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
+	TheLoop:
+		for {
+			select {
+			case <-time.Tick(time.Second):
+				logrus.Tracef("Waiting tick for promised round %d", round)
+			case <-wf:
+				break TheLoop
+			case <-ctx.Done():
+				bc.addBlock(&blockfetcher.BlockWrap{
+					Round: round,
+					Error: errors.New("block timeout"),
+				})
+				return nil, false, ctx.Err()
+			}
 		}
 		be.RLock()
 		defer be.RUnlock()
