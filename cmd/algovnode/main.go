@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/algonode/algovnode/internal/blockcache"
-	algod "github.com/algonode/algovnode/internal/cluster"
 	"github.com/algonode/algovnode/internal/config"
+	"github.com/algonode/algovnode/internal/hacluster"
 	"github.com/algonode/algovnode/internal/httpsrv"
 	"github.com/sirupsen/logrus"
 )
@@ -59,7 +59,7 @@ func main() {
 
 	cache := blockcache.New(ctx)
 
-	cluster := algod.NewCluster(ctx, cache, cfg, log)
+	cluster := hacluster.New(ctx, cache, cfg, log)
 	cache.SetBlockFetcher(cluster)
 
 	algodSrv := httpsrv.NewAlgodProxy(ctx, cf, cache, cluster, cfg.Algod, log)

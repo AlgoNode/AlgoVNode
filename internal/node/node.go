@@ -172,10 +172,10 @@ func (node *Node) boot(ctx context.Context) bool {
 	}
 
 	//Make sure all nodes have the same genesis
-	if err := node.cluster.EnsureGenesis(genesis); err != nil {
+	if err := node.cluster.GenesisEnsure(genesis); err != nil {
 		//Singal fatal error
 		node.log.WithError(err).Error()
-		node.cluster.fatalErr <- err
+		node.cluster.FatalError(err)
 		return false
 	}
 	node.genesis = genesis
@@ -270,11 +270,11 @@ func (node *Node) fetchBlockRaw(ctx context.Context, round uint64) bool {
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
 	if err != nil {
 		node.log.WithError(err).Errorf("BlockRaw %d", round)
-		node.BlockSinkError(round, err)
+		node.cluster.BlockSinkError(round, node.cfg.Id, err)
 		return false
 	}
 	node.log.Debugf("Fetched block %d in %.1fms", round, 0.001*float32(time.Since(start).Microseconds()))
-	node.BlockSink(block, rawBlock)
+	node.cluster.BlockSink(round, node.cfg.Id, rawBlock)
 	return true
 }
 
@@ -284,9 +284,9 @@ func (node *Node) Monitor(ctx context.Context) {
 
 		lr := node.updateStatusAfter(ctx)
 		if lr == 0 {
-			//reboot
+			//Reconnect
 			if ctx.Err() == nil {
-				node.log.Errorf("Rebooting node due to issue with UpdateStatusAfter")
+				node.log.Errorf("Reconnecting to node due to issue with UpdateStatusAfter")
 			}
 			break
 		}
@@ -296,12 +296,12 @@ func (node *Node) Monitor(ctx context.Context) {
 			time.Sleep(time.Second)
 			continue
 		}
-		clr := node.cluster.GetLatestRound()
+		clr := node.cluster.LatestRoundGet()
 		if clr < lr+1 {
 			if !node.fetchBlockRaw(ctx, lr+1) {
-				//reboot
+				//Reconnect
 				if ctx.Err() == nil {
-					node.log.Errorf("Rebooting node due to issue with Fetch Block")
+					node.log.Errorf("Reconnecting to node due to issue with Fetch Block")
 				}
 				break
 			}
@@ -408,6 +408,6 @@ func (node *Node) setState(state ANState, reason string) {
 	oldStateAt := node.state_at
 	node.state = state
 	node.state_at = time.Now()
-	node.mgr.StateUpdate()
+	node.cluster.StateUpdate()
 	node.log.WithFields(logrus.Fields{"oldState": oldState.String(), "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
 }

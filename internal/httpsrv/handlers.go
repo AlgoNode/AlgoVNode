@@ -2,7 +2,6 @@ package httpsrv
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/blockcache"
+	"github.com/algonode/algovnode/internal/utils"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
 )
@@ -29,21 +29,12 @@ const (
 	BFIdxJson
 )
 
-//TODO: tune this per endpoint
-var proxy404 = []int{200, 204, 400, 404}
-var proxy200 = []int{200, 204, 400}
-var proxyALL []int = nil
-
-func jsonError(c echo.Context, status int, err string) {
-	c.JSON(status, map[string]string{"message": err})
-}
-
 //waitHandler waits for round after
 func (si *ServerImplementation) waitHandler(c echo.Context) error {
 	round := c.Param("round")
 	roundInt64, err := strconv.ParseInt(round, 10, 64)
 	if round == "" || err != nil || roundInt64 < 0 {
-		jsonError(c, http.StatusBadRequest, "Invalid round value")
+		utils.JsonError(c, http.StatusBadRequest, "Invalid round value")
 		return nil
 	}
 
@@ -52,12 +43,12 @@ func (si *ServerImplementation) waitHandler(c echo.Context) error {
 
 	status := si.cluster.WaitForStatusAfter(timeoutCtx, uint64(roundInt64))
 	if timeoutCtx.Err() == context.DeadlineExceeded {
-		jsonError(c, http.StatusServiceUnavailable, "timeout")
+		utils.JsonError(c, http.StatusServiceUnavailable, "timeout")
 		return nil
 	}
 
 	if status == nil {
-		jsonError(c, http.StatusInternalServerError, "Error waiting for round")
+		utils.JsonError(c, http.StatusInternalServerError, "Error waiting for round")
 		return nil
 	}
 
@@ -65,25 +56,7 @@ func (si *ServerImplementation) waitHandler(c echo.Context) error {
 }
 
 func (si *ServerImplementation) defaultHandler(c echo.Context) error {
-
-	nodes := si.cluster.GetSyncedNodesByRTT()
-	for i, n := range nodes {
-		if i < len(nodes)-1 {
-			//Proxy only if specific status is returned
-			if ok, _, _ := n.ProxyHTTP(c, proxy404); ok {
-				return nil
-			}
-		} else {
-			//Proxy any status from last node (fallback)
-			if ok, _, _ := n.ProxyHTTP(c, proxyALL); ok {
-				return nil
-			}
-		}
-	}
-
-	jsonError(c, http.StatusBadGateway, "No synced upstream nodes available")
-
-	return errors.New("no synced upstream nodes available")
+	return si.cluster.ProxyHTTP(c, utils.Proxy404)
 }
 
 func (si *ServerImplementation) blockHandlerWrap(c echo.Context) error {
@@ -91,7 +64,7 @@ func (si *ServerImplementation) blockHandlerWrap(c echo.Context) error {
 	formatStr := "json"
 	err := echo.QueryParamsBinder(c).String("format", &formatStr).BindError()
 	if err != nil {
-		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter format: %s", err))
+		utils.JsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format for parameter format: %s", err))
 		return nil
 	}
 
@@ -110,7 +83,7 @@ func (si *ServerImplementation) blockHandlerWrap(c echo.Context) error {
 	case "indexer":
 		format = BFIdxJson
 	default:
-		jsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format: %s", formatStr))
+		utils.JsonError(c, http.StatusBadRequest, fmt.Sprintf("Invalid format: %s", formatStr))
 		return nil
 	}
 	return si.blocksHandler(c, format)
@@ -125,7 +98,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 	round := c.Param("round")
 	roundInt64, err := strconv.ParseInt(round, 10, 64)
 	if round == "" || err != nil || roundInt64 < 0 {
-		jsonError(c, http.StatusBadRequest, "Invalid round value")
+		utils.JsonError(c, http.StatusBadRequest, "Invalid round value")
 		return nil
 	}
 
@@ -135,12 +108,12 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 	block, err := si.cluster.GetBlock(timeoutCtx, uint64(roundInt64), format == BFMsgPack)
 
 	if timeoutCtx.Err() == context.DeadlineExceeded {
-		jsonError(c, http.StatusServiceUnavailable, "timeout")
+		utils.JsonError(c, http.StatusServiceUnavailable, "timeout")
 		return nil
 	}
 
 	if err != nil {
-		jsonError(c, http.StatusInternalServerError, err.Error())
+		utils.JsonError(c, http.StatusInternalServerError, err.Error())
 		return nil
 	}
 

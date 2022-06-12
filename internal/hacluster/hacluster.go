@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with algonode.  If not, see <https://www.gnu.org/licenses/>.
 
-package cluster
+package hacluster
 
 import (
 	"context"
@@ -26,17 +26,19 @@ import (
 	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/config"
 	"github.com/algonode/algovnode/internal/node"
+	"github.com/algonode/algovnode/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
 	"github.com/dustin/go-broadcast"
+	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 )
 
 type NodeCluster struct {
-	sync.Mutex
+	sync.RWMutex
 	fatalErr     chan error
 	ucache       *blockcache.UnifiedBlockCache
 	latestRound  uint64
-	lastSrc      *node.Node
+	latestStatus *models.NodeStatus
 	lastAt       time.Time
 	genesis      string
 	nodes        []*node.Node
@@ -51,22 +53,22 @@ type NodeCluster struct {
 }
 
 //GetLatestRound returns latest round available on the cluster
-func (gs *NodeCluster) GetLatestRound() uint64 {
-	gs.Lock()
+func (gs *NodeCluster) LatestRoundGet() uint64 {
+	gs.RLock()
 	lr := gs.latestRound
-	gs.Unlock()
+	gs.RUnlock()
 	return lr
 }
 
 //SetLatestRound sets latest round available on the cluster
-func (gs *NodeCluster) SetLatestRound(lr uint64, node *node.Node) bool {
+func (gs *NodeCluster) LatestRoundSet(lr uint64, ns *models.NodeStatus) bool {
 	gs.Lock()
 	defer gs.Unlock()
 	if lr > gs.latestRound {
 		gs.latestRound = lr
 		gs.lastAt = time.Now()
-		gs.lastSrc = node
-		gs.broadcaster.TrySubmit(node.lastStatus)
+		gs.latestStatus = ns
+		gs.broadcaster.TrySubmit(ns)
 		return true
 	}
 	return false
@@ -88,12 +90,12 @@ func (gs *NodeCluster) broadcastListener(ctx context.Context) {
 
 func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *models.NodeStatus {
 	var lrStatus *models.NodeStatus
-	gs.Lock()
+	gs.RLock()
 	lr := gs.latestRound
-	if gs.lastSrc != nil {
-		lrStatus = gs.lastSrc.lastStatus
+	if gs.latestStatus != nil {
+		lrStatus = gs.latestStatus
 	}
-	gs.Unlock()
+	gs.RUnlock()
 	if lrStatus != nil && lr > round {
 		return lrStatus
 	}
@@ -114,7 +116,7 @@ func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *mo
 }
 
 //EnsureGenesis returns error if supplied genesis hash does not match cluster genesis
-func (gs *NodeCluster) EnsureGenesis(g string) error {
+func (gs *NodeCluster) GenesisEnsure(g string) error {
 	gs.Lock()
 	defer gs.Unlock()
 	if gs.genesis == "" {
@@ -136,23 +138,50 @@ func (gs *NodeCluster) WaitForFatal(ctx context.Context) {
 	}
 }
 
+func (gs *NodeCluster) FatalError(err error) {
+	select {
+	case gs.fatalErr <- err:
+	default:
+	}
+}
+
 //GetSyncNodesByRTT returns list of synced nodes ordered by status response time
-func (gs *NodeCluster) GetCatchupSyncedNodesByRTT() []*node.Node {
+func (gs *NodeCluster) getCatchupSyncedNodesByRTT() []*node.Node {
 	return gs.catchupNodes
 }
 
-func (gs *NodeCluster) GetArchSyncedNodesByRTT() []*node.Node {
+func (gs *NodeCluster) getArchSyncedNodesByRTT() []*node.Node {
 	return gs.archNodes
 }
 
-func (gs *NodeCluster) GetSyncedNodesByRTT() []*node.Node {
-	catchupNodes := gs.GetCatchupSyncedNodesByRTT()
-	archiveNodes := gs.GetArchSyncedNodesByRTT()
+func (gs *NodeCluster) getSyncedNodesByRTT() []*node.Node {
+	catchupNodes := gs.getCatchupSyncedNodesByRTT()
+	archiveNodes := gs.getArchSyncedNodesByRTT()
 
 	nodes := make([]*node.Node, 0, len(catchupNodes)+len(archiveNodes))
 	nodes = append(nodes, catchupNodes...)
 	nodes = append(nodes, archiveNodes...)
 	return nodes
+}
+
+func (gs *NodeCluster) ProxyHTTP(c echo.Context, proxyStatuses []int) error {
+	nodes := gs.getSyncedNodesByRTT()
+	for i, n := range nodes {
+		if i < len(nodes)-1 {
+			//Proxy only if specific status is returned
+			if ok, _, _ := n.ProxyHTTP(c, utils.Proxy404); ok {
+				return nil
+			}
+		} else {
+			//Proxy any status from last node (fallback)
+			if ok, _, _ := n.ProxyHTTP(c, utils.ProxyALL); ok {
+				return nil
+			}
+		}
+	}
+
+	return utils.JsonError(c, http.StatusBadGateway, "No synced upstream nodes available")
+
 }
 
 func (gs *NodeCluster) GetBlock(ctx context.Context, round uint64, msgp bool) (*blockfetcher.BlockWrap, error) {
@@ -278,8 +307,8 @@ func (gs *NodeCluster) SinkError(round uint64, err error) {
 	}
 }
 
-//NewCluster instantiates all configured nodes and returns new node cluster object
-func NewCluster(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig, log *logrus.Entry) *node.NodeCluster {
+//New instantiates all configured nodes and returns new node cluster object
+func New(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig, log *logrus.Entry) *node.NodeCluster {
 	cluster := &NodeCluster{
 		genesis:      "",
 		latestRound:  0,

@@ -1,14 +1,22 @@
 package icluster
 
 import (
-	"github.com/algonode/algovnode/internal/blockwrap"
+	"context"
+
 	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
+	"github.com/labstack/echo/v4"
 )
 
 type Cluster interface {
-	BlockSink(*blockwrap.BlockWrap) bool
+	BlockSink(round uint64, src string, blockRaw []byte) bool
+	BlockSinkError(round uint64, src string, err error)
 	StateUpdate()
-	IsUp() bool
+	StateIsReady() bool
 	LatestRoundGet() uint64
-	LatestRoundSet(round uint64, status *models.NodeStatus)
+	LatestRoundSet(uint64, *models.NodeStatus)
+	GenesisEnsure(string) error
+	FatalError(error)
+	WaitForStatusAfter(ctx context.Context, round uint64) *models.NodeStatus
+	WaitForFatal(ctx context.Context)
+	ProxyHTTP(c echo.Context, proxyStatuses []int) error
 }
