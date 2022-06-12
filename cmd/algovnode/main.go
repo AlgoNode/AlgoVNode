@@ -24,8 +24,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/algonode/algovnode/internal/algod"
 	"github.com/algonode/algovnode/internal/blockcache"
+	algod "github.com/algonode/algovnode/internal/cluster"
 	"github.com/algonode/algovnode/internal/config"
 	"github.com/algonode/algovnode/internal/httpsrv"
 	"github.com/sirupsen/logrus"
