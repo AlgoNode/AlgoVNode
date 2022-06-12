@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/algonode/algovnode/internal/config"
+	"github.com/algonode/algovnode/internal/icluster"
 	"github.com/algonode/algovnode/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/client/v2/common"
@@ -90,6 +91,7 @@ type Node struct {
 	latestRound uint64
 	state       ANState
 	state_at    time.Time
+	cluster     icluster.Cluster
 }
 
 func (node *Node) LastStatus() *models.NodeStatus {
@@ -144,7 +146,7 @@ func (node *Node) updateStatus(ctx context.Context) bool {
 		return false
 	}
 	if node.updateWithStatus(nodeStatus) {
-		node.cluster.SetLatestRound(node.latestRound, node)
+		node.cluster.LatestRoundSet(node.latestRound, nodeStatus)
 		return true
 	}
 	return false
@@ -200,7 +202,7 @@ func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
 	var lr uint64 = 0
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		//skip ahead
-		lr = node.cluster.GetLatestRound()
+		lr = node.cluster.LatestRoundGet()
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
 			if err != context.Canceled {
@@ -352,6 +354,8 @@ type NodeStatus struct {
 	LastCP    string
 }
 
+/*
+
 func (node *Node) BlockSinkError(round uint64, err error) {
 	node.cluster.SinkError(round, err)
 }
@@ -392,6 +396,8 @@ func (node *Node) BlockSink(block *rpcs.EncodedBlockCert, blockRaw []byte) bool 
 	return false
 }
 
+*/
+
 func (node *Node) setState(state ANState, reason string) {
 	node.Lock()
 	defer node.Unlock()
@@ -402,6 +408,6 @@ func (node *Node) setState(state ANState, reason string) {
 	oldStateAt := node.state_at
 	node.state = state
 	node.state_at = time.Now()
-	node.cluster.StateUpdate()
+	node.mgr.StateUpdate()
 	node.log.WithFields(logrus.Fields{"oldState": oldState.String(), "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
 }
