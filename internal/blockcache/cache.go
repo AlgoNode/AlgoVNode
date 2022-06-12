@@ -75,7 +75,7 @@ func (bc *BlockCache) addBlock(b *blockwrap.BlockWrap) {
 				}
 			}
 		} else {
-			logrus.Tracef("Block %d already cached in %s with Data:%t Err:%t", b.Round, bc.name, b.Raw != nil, b.Error != nil)
+			logrus.Tracef("Block %d already cached in %s with Data:%t Err:%t", b.Round, bc.name, fbe.Raw != nil, fbe.Error != nil)
 		}
 		//notify waiters
 		if (fbe.Raw != nil || fbe.Error != nil) && fbe.WaitFor != nil {
