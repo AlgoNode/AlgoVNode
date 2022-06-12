@@ -56,6 +56,7 @@ func (bc *BlockCache) addBlock(b *blockwrap.BlockWrap) {
 		BlockWrap: *b,
 		WaitFor:   nil,
 	}
+	logrus.Tracef("Delivering block %d with Data:%t Err:%t", b.Round, b.Raw != nil, b.Error != nil)
 	if e, found, _ := bc.c.PeekOrAdd(be.Round, be); found {
 		fbe := e.(*BlockEntry)
 		fbe.Lock()
@@ -74,7 +75,7 @@ func (bc *BlockCache) addBlock(b *blockwrap.BlockWrap) {
 				}
 			}
 		} else {
-			logrus.Tracef("Block %d already cached in %s", b.Round, bc.name)
+			logrus.Tracef("Block %d already cached in %s with Data:%t Err:%t", b.Round, bc.name, b.Raw != nil, b.Error != nil)
 		}
 		//notify waiters
 		if (fbe.Raw != nil || fbe.Error != nil) && fbe.WaitFor != nil {
@@ -84,7 +85,7 @@ func (bc *BlockCache) addBlock(b *blockwrap.BlockWrap) {
 		}
 		fbe.Unlock()
 	} else {
-		logrus.Tracef("Added block %d to cache %s ", b.Round, bc.name)
+		logrus.Tracef("Added block %d to cache %s with err:%t", b.Round, bc.name, b.Error != nil)
 	}
 	if bc.last < b.Round && b.Error == nil {
 		bc.last = b.Round
