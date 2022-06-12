@@ -2,7 +2,6 @@ package blockwrap
 
 import (
 	"errors"
-	"time"
 
 	"github.com/algonode/algovnode/internal/utils"
 	"github.com/algorand/go-algorand/protocol"
@@ -47,7 +46,7 @@ func (bw *BlockWrap) AsIdxJson() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	blockIdx, err := utils.GenerateBlock(dBlock)
+	blockIdx, err := utils.GenerateBlock(&dBlock.Block)
 	if err != nil {
 		return nil, err
 	}
@@ -56,19 +55,16 @@ func (bw *BlockWrap) AsIdxJson() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	return idxJBlock, nil
 }
 
-func MakeBlockWrap(src string, block *rpcs.EncodedBlockCert, blockRaw []byte) (*BlockWrap, error) {
+func MakeBlockWrap(src string, block *rpcs.EncodedBlockCert, blockRaw []byte, err error) (*BlockWrap, error) {
 
 	bw := &BlockWrap{
-		Round:         uint64(block.Block.BlockHeader.Round),
-		CachedAt:      time.Now(),
-		Block:         block,
-		BlockMsgPack:  blockRaw,
-		BlockJsonIdx:  string(idxJBlock),
-		BlockJsonNode: string(jBlock),
-		Src:           src,
+		Round: uint64(block.Block.BlockHeader.Round),
+		Raw:   blockRaw,
+		Src:   src,
+		Error: err,
 	}
 	return bw, nil
 
