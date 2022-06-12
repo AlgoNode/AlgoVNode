@@ -180,7 +180,7 @@ func (node *Node) boot(ctx context.Context) bool {
 	}
 	node.genesis = genesis
 
-	if node.fetchBlockRaw(ctx, 0) {
+	if node.FetchBlockRaw(ctx, 0) {
 		node.log.Infof("Node is archival")
 		node.Catchup = false
 	}
@@ -195,6 +195,12 @@ func (node *Node) updateRTT(us int64) {
 		node.rttEwma = 0.9*node.rttEwma + 0.1*float32(us)/1000.0
 	}
 	node.Unlock()
+}
+
+func (node *Node) GetRTT() float32 {
+	node.RLock()
+	defer node.RUnlock()
+	return node.rttEwma
 }
 
 func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
@@ -244,7 +250,7 @@ func isFatalAPIError(err error) bool {
 	return false
 }
 
-func (node *Node) fetchBlockRaw(ctx context.Context, round uint64) bool {
+func (node *Node) FetchBlockRaw(ctx context.Context, round uint64) bool {
 	block := new(rpcs.EncodedBlockCert)
 	var rawBlock []byte
 	start := time.Now()
@@ -298,7 +304,7 @@ func (node *Node) Monitor(ctx context.Context) {
 		}
 		clr := node.cluster.LatestRoundGet()
 		if clr < lr+1 {
-			if !node.fetchBlockRaw(ctx, lr+1) {
+			if !node.FetchBlockRaw(ctx, lr+1) {
 				//Reconnect
 				if ctx.Err() == nil {
 					node.log.Errorf("Reconnecting to node due to issue with Fetch Block")
@@ -322,7 +328,7 @@ func (node *Node) mainLoop(ctx context.Context) {
 	}
 }
 
-func (node *Node) Start(ctx context.Context) error {
+func (node *Node) start(ctx context.Context) error {
 	hdrs := []*common.Header{
 		{Key: "Referer", Value: "http://" + NODE_TAG},
 		{Key: "User-Agent", Value: NODE_TAG},
@@ -410,4 +416,19 @@ func (node *Node) setState(state ANState, reason string) {
 	node.state_at = time.Now()
 	node.cluster.StateUpdate()
 	node.log.WithFields(logrus.Fields{"oldState": oldState.String(), "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
+}
+
+func New(ctx context.Context, cfg *config.NodeCfg, cluster icluster.Cluster, log *logrus.Entry) (*Node, error) {
+	node := &Node{
+		state:    AnsConfig,
+		state_at: time.Now(),
+		Catchup:  true,
+		rttEwma:  100_000_000,
+		cluster:  cluster,
+		cfg:      cfg,
+		genesis:  "",
+	}
+	node.log = log.WithFields(logrus.Fields{"nodeId": cfg.Id, "state": &node.state, "rttMs": (*T_RttEwma)(&node.rttEwma)})
+
+	return node, node.start(ctx)
 }

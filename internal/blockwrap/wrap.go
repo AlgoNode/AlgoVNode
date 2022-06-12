@@ -58,14 +58,11 @@ func (bw *BlockWrap) AsIdxJson() ([]byte, error) {
 	return idxJBlock, nil
 }
 
-func MakeBlockWrap(round uint64, src string, block *rpcs.EncodedBlockCert, blockRaw []byte, err error) (*BlockWrap, error) {
-
-	bw := &BlockWrap{
+func MakeBlockWrap(round uint64, src string, blockRaw []byte, err error) *BlockWrap {
+	return &BlockWrap{
 		Round: round,
 		Raw:   blockRaw,
 		Src:   src,
 		Error: err,
 	}
-	return bw, nil
-
 }

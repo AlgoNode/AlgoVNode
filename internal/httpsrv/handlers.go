@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/algonode/algovnode/internal/algod"
-	"github.com/algonode/algovnode/internal/blockcache"
+	"github.com/algonode/algovnode/internal/icluster"
 	"github.com/algonode/algovnode/internal/utils"
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
@@ -17,8 +16,7 @@ import (
 
 type ServerImplementation struct {
 	log     *log.Logger
-	ucache  *blockcache.UnifiedBlockCache
-	cluster *algod.NodeCluster
+	cluster icluster.Cluster
 }
 
 type BlockFormat int64
@@ -105,7 +103,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 	timeoutCtx, cancel := context.WithTimeout(c.Request().Context(), time.Second*10)
 	defer cancel()
 
-	block, err := si.cluster.GetBlock(timeoutCtx, uint64(roundInt64), format == BFMsgPack)
+	block, err := si.cluster.GetBlockRaw(timeoutCtx, uint64(roundInt64), format == BFMsgPack)
 
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		utils.JsonError(c, http.StatusServiceUnavailable, "timeout")

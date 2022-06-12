@@ -60,9 +60,8 @@ func main() {
 	cache := blockcache.New(ctx)
 
 	cluster := hacluster.New(ctx, cache, cfg, log)
-	cache.SetBlockFetcher(cluster)
 
-	algodSrv := httpsrv.NewAlgodProxy(ctx, cf, cache, cluster, cfg.Algod, log)
+	algodSrv := httpsrv.NewAlgodProxy(ctx, cf, cluster, cfg.Algod, log)
 
 	var idxSrv *http.Server = nil
 	if cfg.Indexer != nil && cfg.Indexer.Enabled {
