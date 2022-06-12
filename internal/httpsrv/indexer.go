@@ -6,9 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/algonode/algovnode/internal/algod"
-	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/config"
+	"github.com/algonode/algovnode/internal/icluster"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/sirupsen/logrus"
@@ -17,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func NewIndexerProxy(ctx context.Context, cancel context.CancelFunc, cache *blockcache.UnifiedBlockCache, cluster *algod.NodeCluster, cfg *config.IdxCfg, log *logrus.Entry) *http.Server {
+func NewIndexerProxy(ctx context.Context, cancel context.CancelFunc, cluster icluster.Cluster, cfg *config.IdxCfg, log *logrus.Entry) *http.Server {
 	e := echo.New()
 
 	e.Use(MakeLogger(log.Logger, "Indexer API"))
@@ -38,7 +37,6 @@ func NewIndexerProxy(ctx context.Context, cancel context.CancelFunc, cache *bloc
 
 	api := ServerImplementation{
 		log:     log.Logger,
-		ucache:  cache,
 		cluster: cluster,
 	}
 

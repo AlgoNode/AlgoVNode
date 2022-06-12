@@ -103,7 +103,7 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 	timeoutCtx, cancel := context.WithTimeout(c.Request().Context(), time.Second*10)
 	defer cancel()
 
-	block, err := si.cluster.GetBlockRaw(timeoutCtx, uint64(roundInt64), format == BFMsgPack)
+	block, err := si.cluster.GetBlockWrap(timeoutCtx, uint64(roundInt64), format == BFMsgPack)
 
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		utils.JsonError(c, http.StatusServiceUnavailable, "timeout")
@@ -120,11 +120,19 @@ func (si *ServerImplementation) blocksHandler(c echo.Context, format BlockFormat
 		switch format {
 		case BFMsgPack:
 			c.Response().Header().Set("X-Algorand-Struct", "block-v1")
-			c.Blob(http.StatusOK, "application/msgpack", block.BlockMsgPack)
+			c.Blob(http.StatusOK, "application/msgpack", block.Raw)
 		case BFNodeJson:
-			c.JSONBlob(http.StatusOK, []byte(block.BlockJsonNode))
+			json, err := block.AsNodeJson()
+			if err != nil {
+				utils.JsonError(c, http.StatusServiceUnavailable, err.Error())
+			}
+			c.JSONBlob(http.StatusOK, json)
 		case BFIdxJson:
-			c.JSONBlob(http.StatusOK, []byte(block.BlockJsonIdx))
+			json, err := block.AsIdxJson()
+			if err != nil {
+				utils.JsonError(c, http.StatusServiceUnavailable, err.Error())
+			}
+			c.JSONBlob(http.StatusOK, json)
 		}
 		return nil
 	}

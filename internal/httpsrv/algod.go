@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func NewAlgodProxy(ctx context.Context, cancel context.CancelFunc, cluster *icluster.Cluster, cfg *config.AlgodCfg, log *logrus.Entry) *http.Server {
+func NewAlgodProxy(ctx context.Context, cancel context.CancelFunc, cluster icluster.Cluster, cfg *config.AlgodCfg, log *logrus.Entry) *http.Server {
 	e := echo.New()
 
 	e.Use(MakeLogger(log.Logger, "Algod API"))
