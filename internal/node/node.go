@@ -122,7 +122,6 @@ func (node *Node) updateWithStatus(nodeStatus *models.NodeStatus) bool {
 		node.latestRound = nodeStatus.LastRound
 	}
 	node.lastStatus = nodeStatus
-	//	node.log.Debugf("lastRound is %d", node.latestRound)
 	node.Unlock()
 	return true
 }
@@ -209,6 +208,7 @@ func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		//skip ahead
 		lr = node.cluster.LatestRoundGet()
+
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
 			if err != context.Canceled {
@@ -281,13 +281,13 @@ func (node *Node) FetchBlockRaw(ctx context.Context, round uint64) bool {
 	}
 	node.log.Debugf("Fetched block %d in %.1fms", round, 0.001*float32(time.Since(start).Microseconds()))
 	node.cluster.BlockSink(round, node.cfg.Id, rawBlock)
+
 	return true
 }
 
 func (node *Node) Monitor(ctx context.Context) {
 	for ctx.Err() == nil {
 		//TODO - detect node swap mainnet -> testnet
-
 		lr := node.updateStatusAfter(ctx)
 		if lr == 0 {
 			//Reconnect
