@@ -23,6 +23,10 @@ type BlockCache struct {
 	name string
 }
 
+func (be *BlockEntry) WaitForBlock() {
+
+}
+
 func (bc *BlockCache) promiseBlock(round uint64) *BlockEntry {
 	//under ubc lock
 	be := &BlockEntry{
@@ -103,45 +107,52 @@ func (bc *BlockCache) IsBlockCached(round uint64) bool {
 	return false
 }
 
+func (be *BlockEntry) Resolve(ctx context.Context) (*BlockEntry, bool, error) {
+	be.RLock()
+	if be.Error != nil {
+		defer be.RUnlock()
+		return nil, false, be.Error
+	}
+	if be.Raw != nil {
+		defer be.RUnlock()
+		return be, true, nil
+	}
+	wf := be.WaitFor
+	be.RUnlock()
+	if wf == nil {
+		logrus.Tracef("block %d not loaded and not promised", be.Round)
+		return nil, false, errors.New("block not scheduled for load")
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+TheLoop:
+	for {
+		select {
+		case <-ticker.C:
+			logrus.Tracef("Waiting tick for promised round %d", be.Round)
+		case <-wf:
+			break TheLoop
+		case <-ctx.Done():
+			// bc.addBlock(&blockwrap.BlockWrap{
+			// 	Round: be.Round,
+			// 	Error: errors.New("block timeout"),
+			// })
+			return nil, false, ctx.Err()
+		}
+	}
+	be.RLock()
+	defer be.RUnlock()
+	if be.Error != nil {
+		return nil, false, be.Error
+	}
+	return be, true, nil
+}
+
 func (bc *BlockCache) getBlockEntry(ctx context.Context, round uint64) (*BlockEntry, bool, error) {
 	if item, ok := bc.c.Get(round); ok {
 		be := item.(*BlockEntry)
-		be.RLock()
-		if be.Error != nil {
-			defer be.RUnlock()
-			return nil, false, be.Error
-		}
-		if be.Raw != nil {
-			defer be.RUnlock()
-			return be, true, nil
-		}
-		wf := be.WaitFor
-		be.RUnlock()
-		if wf == nil {
-			logrus.Tracef("block %d not loaded and not promised", round)
-			return nil, false, errors.New("block not scheduled for load")
-		}
-	TheLoop:
-		for {
-			select {
-			case <-time.Tick(time.Second):
-				logrus.Tracef("Waiting tick for promised round %d", round)
-			case <-wf:
-				break TheLoop
-			case <-ctx.Done():
-				bc.addBlock(&blockwrap.BlockWrap{
-					Round: round,
-					Error: errors.New("block timeout"),
-				})
-				return nil, false, ctx.Err()
-			}
-		}
-		be.RLock()
-		defer be.RUnlock()
-		if be.Error != nil {
-			return nil, false, be.Error
-		}
-		return be, true, nil
+		return be.Resolve(ctx)
 	}
 	return nil, false, nil
 }

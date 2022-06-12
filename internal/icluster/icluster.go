@@ -9,12 +9,12 @@ import (
 )
 
 type Cluster interface {
-	BlockSink(round uint64, src string, blockRaw []byte) bool
+	BlockSink(round uint64, src string, blockRaw []byte)
 	BlockSinkError(round uint64, src string, err error)
 	StateUpdate()
 	StateIsReady() bool
 	LatestRoundGet() uint64
-	LatestRoundSet(uint64, *models.NodeStatus)
+	LatestRoundSet(uint64, *models.NodeStatus) bool
 	GenesisEnsure(string) error
 	FatalError(error)
 	WaitForStatusAfter(ctx context.Context, round uint64) *models.NodeStatus

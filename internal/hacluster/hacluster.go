@@ -239,7 +239,18 @@ func (gs *NodeCluster) GetBlockWrap(ctx context.Context, round uint64, msgp bool
 	if msgp {
 		gs.prefetchNotify(round)
 	}
-	return gs.ucache.GetBlock(ctx, round)
+	be, found, err := gs.ucache.GetBlockEntry(ctx, round)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return &be.BlockWrap, nil
+	}
+	be, found, err2 := be.Resolve(ctx)
+	if err2 != nil {
+		return nil, err2
+	}
+	return &be.BlockWrap, nil
 }
 
 func (gs *NodeCluster) isBlockCached(round uint64) bool {
@@ -307,14 +318,18 @@ func (gs *NodeCluster) BlockSinkError(round uint64, src string, err error) {
 		err = errors.New(ERRMSG_BLK404)
 	}
 	if gs.ucache != nil {
-		gs.ucache.AddBlock(
-			blockwrap.MakeBlockWrap(round, src, nil, err)
-		)
+		gs.ucache.AddBlock(blockwrap.MakeBlockWrap(round, src, nil, err))
+	}
+}
+
+func (gs *NodeCluster) BlockSink(round uint64, src string, blockRaw []byte) {
+	if gs.ucache != nil {
+		gs.ucache.AddBlock(blockwrap.MakeBlockWrap(round, src, blockRaw, nil))
 	}
 }
 
 //New instantiates all configured nodes and returns new node cluster object
-func New(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig, log *logrus.Entry) *node.NodeCluster {
+func New(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig, log *logrus.Entry) *NodeCluster {
 	cluster := &NodeCluster{
 		genesis:      "",
 		latestRound:  0,

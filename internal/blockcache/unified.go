@@ -72,14 +72,14 @@ func (ubc *UnifiedBlockCache) IsBlockCached(round uint64) bool {
 }
 
 //GetBlock reads cached block or blocks till one is fetched from the cluster
-func (ubc *UnifiedBlockCache) GetBlockEntry(ctx context.Context, round uint64) (*BlockEntry, error) {
+func (ubc *UnifiedBlockCache) GetBlockEntry(ctx context.Context, round uint64) (*BlockEntry, bool, error) {
 	if be, _, _ := ubc.catchupCache.getBlockEntry(ctx, round); be.Raw != nil {
-		return be, nil
+		return be, true, nil
 	}
 	if be, _, _ := ubc.archCache.getBlockEntry(ctx, round); be.Raw != nil {
-		return be, nil
+		return be, true, nil
 	}
-	return ubc.PromiseBlock(round), nil
+	return ubc.PromiseBlock(round), false, nil
 }
 
 //New returns new Unified Block Cache struct

@@ -65,7 +65,7 @@ func main() {
 
 	var idxSrv *http.Server = nil
 	if cfg.Indexer != nil && cfg.Indexer.Enabled {
-		idxSrv = httpsrv.NewIndexerProxy(ctx, cf, cache, cluster, cfg.Indexer, log)
+		idxSrv = httpsrv.NewIndexerProxy(ctx, cf, cluster, cfg.Indexer, log)
 	}
 	cluster.WaitForFatal(ctx)
 
