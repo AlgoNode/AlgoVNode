@@ -31,16 +31,23 @@ func (bw *BlockWrap) Decoded() (*rpcs.EncodedBlockCert, error) {
 }
 
 func (bw *BlockWrap) AsNodeJson() ([]byte, error) {
-	jBlock, err := utils.EncodeJson(bw.Raw)
+	dBlock, err := bw.Decoded()
+	if err != nil {
+		return nil, err
+	}
+	jBlock, err := utils.EncodeJson(dBlock)
 	if err != nil {
 		return nil, err
 	}
 	return jBlock, nil
 }
 
-func MakeBlockWrap(src string, block *rpcs.EncodedBlockCert, blockRaw []byte) (*BlockWrap, error) {
-
-	blockIdx, err := utils.GenerateBlock(&block.Block)
+func (bw *BlockWrap) AsIdxJson() ([]byte, error) {
+	dBlock, err := bw.Decoded()
+	if err != nil {
+		return nil, err
+	}
+	blockIdx, err := utils.GenerateBlock(dBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +56,10 @@ func MakeBlockWrap(src string, block *rpcs.EncodedBlockCert, blockRaw []byte) (*
 	if err != nil {
 		return nil, err
 	}
+
+}
+
+func MakeBlockWrap(src string, block *rpcs.EncodedBlockCert, blockRaw []byte) (*BlockWrap, error) {
 
 	bw := &BlockWrap{
 		Round:         uint64(block.Block.BlockHeader.Round),
