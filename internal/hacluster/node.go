@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with algonode.  If not, see <https://www.gnu.org/licenses/>.
 
-package node
+package hacluster
 
 import (
 	"context"
@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/algonode/algovnode/internal/config"
-	"github.com/algonode/algovnode/internal/icluster"
 	"github.com/algonode/algovnode/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/algod"
 	"github.com/algorand/go-algorand-sdk/client/v2/common"
@@ -91,7 +90,7 @@ type Node struct {
 	latestRound uint64
 	state       ANState
 	state_at    time.Time
-	cluster     icluster.Cluster
+	cluster     *NodeCluster
 }
 
 func (node *Node) LastStatus() *models.NodeStatus {
@@ -145,7 +144,7 @@ func (node *Node) updateStatus(ctx context.Context) bool {
 		return false
 	}
 	if node.updateWithStatus(nodeStatus) {
-		node.cluster.LatestRoundSet(node.latestRound, nodeStatus)
+		node.cluster.latestRoundSet(node.latestRound, node)
 		return true
 	}
 	return false
@@ -171,10 +170,10 @@ func (node *Node) boot(ctx context.Context) bool {
 	}
 
 	//Make sure all nodes have the same genesis
-	if err := node.cluster.GenesisEnsure(genesis); err != nil {
+	if err := node.cluster.genesisEnsure(genesis); err != nil {
 		//Singal fatal error
 		node.log.WithError(err).Error()
-		node.cluster.FatalError(err)
+		node.cluster.fatalError(err)
 		return false
 	}
 	node.genesis = genesis
@@ -207,7 +206,7 @@ func (node *Node) updateStatusAfter(ctx context.Context) uint64 {
 	var lr uint64 = 0
 	err := utils.Backoff(ctx, func(actx context.Context) (fatal bool, err error) {
 		//skip ahead
-		lr = node.cluster.LatestRoundGet()
+		lr = node.cluster.latestRoundGet()
 
 		ns, err := node.algodClient.StatusAfterBlock(lr).Do(actx)
 		if err != nil {
@@ -276,11 +275,11 @@ func (node *Node) FetchBlockRaw(ctx context.Context, round uint64) bool {
 	}, time.Second*10, time.Millisecond*100, time.Second*10, 10)
 	if err != nil {
 		node.log.WithError(err).Errorf("BlockRaw %d", round)
-		node.cluster.BlockSinkError(round, node.cfg.Id, err)
+		node.cluster.blockSinkError(round, node.cfg.Id, err)
 		return false
 	}
 	node.log.Debugf("Fetched block %d in %.1fms", round, 0.001*float32(time.Since(start).Microseconds()))
-	node.cluster.BlockSink(round, node.cfg.Id, rawBlock)
+	node.cluster.blockSink(round, node, rawBlock)
 
 	return true
 }
@@ -302,7 +301,7 @@ func (node *Node) Monitor(ctx context.Context) {
 			time.Sleep(time.Second)
 			continue
 		}
-		clr := node.cluster.LatestRoundGet()
+		clr := node.cluster.latestRoundGet()
 		if clr < lr+1 {
 			if !node.FetchBlockRaw(ctx, lr+1) {
 				//Reconnect
@@ -418,7 +417,7 @@ func (node *Node) setState(state ANState, reason string) {
 	node.log.WithFields(logrus.Fields{"oldState": oldState.String(), "durationSec": math.Round(node.state_at.Sub(oldStateAt).Seconds()), "reason": reason}).Info("State change")
 }
 
-func New(ctx context.Context, cfg *config.NodeCfg, cluster icluster.Cluster, log *logrus.Entry) (*Node, error) {
+func newNode(ctx context.Context, cfg *config.NodeCfg, cluster *NodeCluster, log *logrus.Entry) (*Node, error) {
 	node := &Node{
 		state:    AnsConfig,
 		state_at: time.Now(),

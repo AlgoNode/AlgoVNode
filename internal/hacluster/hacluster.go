@@ -26,7 +26,6 @@ import (
 	"github.com/algonode/algovnode/internal/blockcache"
 	"github.com/algonode/algovnode/internal/blockwrap"
 	"github.com/algonode/algovnode/internal/config"
-	"github.com/algonode/algovnode/internal/node"
 	"github.com/algonode/algovnode/internal/utils"
 	"github.com/algorand/go-algorand-sdk/client/v2/common/models"
 	"github.com/dustin/go-broadcast"
@@ -35,7 +34,7 @@ import (
 )
 
 const (
-	ERRMSG_BLK404 = "failed to retrieve information from the ledger"
+	ERRMSG_BLKFAIL = "failed to retrieve information from the ledger"
 )
 
 type NodeCluster struct {
@@ -43,13 +42,13 @@ type NodeCluster struct {
 	fatalErr     chan error
 	ucache       *blockcache.UnifiedBlockCache
 	latestRound  uint64
-	latestStatus *models.NodeStatus
+	latestSrc    *Node
 	lastAt       time.Time
 	genesis      string
-	nodes        []*node.Node
+	nodes        []*Node
 	cState       chan struct{}
-	catchupNodes []*node.Node
-	archNodes    []*node.Node
+	catchupNodes []*Node
+	archNodes    []*Node
 	log          *logrus.Entry
 	broadcaster  broadcast.Broadcaster
 	bpSink       chan uint64
@@ -72,19 +71,19 @@ func (gs *NodeCluster) broadcastListener(ctx context.Context) {
 }
 
 //GetSyncNodesByRTT returns list of synced nodes ordered by status response time
-func (gs *NodeCluster) getCatchupSyncedNodesByRTT() []*node.Node {
+func (gs *NodeCluster) getCatchupSyncedNodesByRTT() []*Node {
 	return gs.catchupNodes
 }
 
-func (gs *NodeCluster) getArchSyncedNodesByRTT() []*node.Node {
+func (gs *NodeCluster) getArchSyncedNodesByRTT() []*Node {
 	return gs.archNodes
 }
 
-func (gs *NodeCluster) getSyncedNodesByRTT() []*node.Node {
+func (gs *NodeCluster) getSyncedNodesByRTT() []*Node {
 	catchupNodes := gs.getCatchupSyncedNodesByRTT()
 	archiveNodes := gs.getArchSyncedNodesByRTT()
 
-	nodes := make([]*node.Node, 0, len(catchupNodes)+len(archiveNodes))
+	nodes := make([]*Node, 0, len(catchupNodes)+len(archiveNodes))
 	nodes = append(nodes, catchupNodes...)
 	nodes = append(nodes, archiveNodes...)
 	return nodes
@@ -93,8 +92,8 @@ func (gs *NodeCluster) getSyncedNodesByRTT() []*node.Node {
 func (gs *NodeCluster) updateNodeLists() {
 	gs.Lock()
 	defer gs.Unlock()
-	archNodes := make([]*node.Node, 0)
-	catchupNodes := make([]*node.Node, 0)
+	archNodes := make([]*Node, 0)
+	catchupNodes := make([]*Node, 0)
 	for _, n := range gs.nodes {
 		if n.Synced() {
 			if n.Catchup {
@@ -112,6 +111,24 @@ func (gs *NodeCluster) updateNodeLists() {
 	})
 	gs.archNodes = archNodes
 	gs.catchupNodes = catchupNodes
+}
+
+func (gs *NodeCluster) WaitUP(ctx context.Context) {
+	//FIXME: make this nicer
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for {
+		if gs.StateIsReady() {
+			gs.log.Infof("Cluster is UP")
+			return
+		}
+		gs.log.Warnf("Waiting for cluster to go UP")
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 //stateChangeMonitor - goroutine that listens to node status changes in the cluster and updates synced nodes lists
@@ -134,7 +151,7 @@ func (gs *NodeCluster) isBlockInTheFuture(round uint64) bool {
 }
 
 //GetLatestRound returns latest round available on the cluster
-func (gs *NodeCluster) LatestRoundGet() uint64 {
+func (gs *NodeCluster) latestRoundGet() uint64 {
 	gs.RLock()
 	lr := gs.latestRound
 	gs.RUnlock()
@@ -142,14 +159,14 @@ func (gs *NodeCluster) LatestRoundGet() uint64 {
 }
 
 //SetLatestRound sets latest round available on the cluster
-func (gs *NodeCluster) LatestRoundSet(lr uint64, ns *models.NodeStatus) bool {
+func (gs *NodeCluster) latestRoundSet(lr uint64, src *Node) bool {
 	gs.Lock()
 	defer gs.Unlock()
 	if lr > gs.latestRound {
 		gs.latestRound = lr
 		gs.lastAt = time.Now()
-		gs.latestStatus = ns
-		gs.broadcaster.TrySubmit(ns)
+		gs.latestSrc = src
+		gs.broadcaster.TrySubmit(src.LastStatus())
 		return true
 	}
 	return false
@@ -159,8 +176,8 @@ func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *mo
 	var lrStatus *models.NodeStatus
 	gs.RLock()
 	lr := gs.latestRound
-	if gs.latestStatus != nil {
-		lrStatus = gs.latestStatus
+	if gs.latestSrc != nil {
+		lrStatus = gs.latestSrc.LastStatus()
 	}
 	gs.RUnlock()
 	if lrStatus != nil && lr > round {
@@ -183,7 +200,7 @@ func (gs *NodeCluster) WaitForStatusAfter(ctx context.Context, round uint64) *mo
 }
 
 //EnsureGenesis returns error if supplied genesis hash does not match cluster genesis
-func (gs *NodeCluster) GenesisEnsure(g string) error {
+func (gs *NodeCluster) genesisEnsure(g string) error {
 	gs.Lock()
 	defer gs.Unlock()
 	if gs.genesis == "" {
@@ -205,7 +222,7 @@ func (gs *NodeCluster) WaitForFatal(ctx context.Context) {
 	}
 }
 
-func (gs *NodeCluster) FatalError(err error) {
+func (gs *NodeCluster) fatalError(err error) {
 	select {
 	case gs.fatalErr <- err:
 	default:
@@ -233,8 +250,9 @@ func (gs *NodeCluster) ProxyHTTP(c echo.Context, proxyStatuses []int) error {
 }
 
 func (gs *NodeCluster) GetBlockWrap(ctx context.Context, round uint64, msgp bool) (*blockwrap.BlockWrap, error) {
-	if gs.isBlockInTheFuture(round) {
-		return nil, errors.New(ERRMSG_BLK404)
+	//Wait if the round is +1 into the future, return failure if more into the future.
+	if gs.isBlockInTheFuture(round + 1) {
+		return nil, errors.New(ERRMSG_BLKFAIL)
 	}
 	if msgp {
 		gs.prefetchNotify(round)
@@ -246,7 +264,7 @@ func (gs *NodeCluster) GetBlockWrap(ctx context.Context, round uint64, msgp bool
 	if found {
 		return &be.BlockWrap, nil
 	}
-	be, found, err2 := be.Resolve(ctx)
+	be, _, err2 := be.Resolve(ctx)
 	if err2 != nil {
 		return nil, err2
 	}
@@ -267,14 +285,14 @@ func (gs *NodeCluster) StateIsReady() bool {
 	return len(gs.catchupNodes)+len(gs.archNodes) > 0
 }
 
-//LoadBlockSync blocks until the round is loaded into cache or the load fails
-func (gs *NodeCluster) LoadBlockSync(ctx context.Context, round uint64) bool {
+//loadBlockSync blocks until the round is loaded into cache or the load fails
+func (gs *NodeCluster) loadBlockSync(ctx context.Context, round uint64) bool {
 	//TODO
 	//handle future rounds
 	//handle parallel limit
 	if round > gs.latestRound {
 		gs.log.Errorf("request block %d greater than lastRound", round)
-		gs.BlockSinkError(round, "cluster", nil)
+		gs.blockSinkError(round, "cluster", nil)
 		return false
 	}
 	if round > gs.latestRound-blockcache.CatchupSize+4 {
@@ -303,7 +321,7 @@ func (gs *NodeCluster) LoadBlockSync(ctx context.Context, round uint64) bool {
 }
 
 func (gs *NodeCluster) addNode(ctx context.Context, cfg *config.NodeCfg) error {
-	node, err := node.New(ctx, cfg, gs, gs.log)
+	node, err := newNode(ctx, cfg, gs, gs.log)
 	if err != nil {
 		return err
 	}
@@ -313,19 +331,36 @@ func (gs *NodeCluster) addNode(ctx context.Context, cfg *config.NodeCfg) error {
 	return nil
 }
 
-func (gs *NodeCluster) BlockSinkError(round uint64, src string, err error) {
+func (gs *NodeCluster) blockSinkError(round uint64, src string, err error) {
 	if err == nil {
-		err = errors.New(ERRMSG_BLK404)
+		err = errors.New(ERRMSG_BLKFAIL)
 	}
 	if gs.ucache != nil {
 		gs.ucache.AddBlock(blockwrap.MakeBlockWrap(round, src, nil, err))
 	}
 }
 
-func (gs *NodeCluster) BlockSink(round uint64, src string, blockRaw []byte) {
-	if gs.ucache != nil {
-		gs.ucache.AddBlock(blockwrap.MakeBlockWrap(round, src, blockRaw, nil))
+func (gs *NodeCluster) blockSink(round uint64, src *Node, blockRaw []byte) {
+	if gs.latestRoundSet(round, src) {
+		//we won the race
+		bw := blockwrap.MakeBlockWrap(round, src.cfg.Id, blockRaw, nil)
+		if gs.ucache != nil {
+			gs.ucache.AddBlock(bw)
+			src.log.Infof("Block %d is now latest", round)
+		} else {
+			src.log.Errorf("Block %d discarded, no sink", round)
+		}
 	}
+	if !gs.isBlockCached(round) {
+		bw := blockwrap.MakeBlockWrap(round, src.cfg.Id, blockRaw, nil)
+		if gs.ucache != nil {
+			src.log.Debugf("Sending block %d to cache", round)
+			gs.ucache.AddBlock(bw)
+		} else {
+			src.log.Errorf("Block %d discarded, no sink", round)
+		}
+	}
+	src.log.Debugf("Block %d already in cache", round)
 }
 
 //New instantiates all configured nodes and returns new node cluster object
@@ -334,11 +369,11 @@ func New(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.A
 		genesis:      "",
 		latestRound:  0,
 		fatalErr:     make(chan error),
-		nodes:        make([]*node.Node, 0),
+		nodes:        make([]*Node, 0),
 		ucache:       ucache,
 		log:          log,
-		catchupNodes: make([]*node.Node, 0),
-		archNodes:    make([]*node.Node, 0),
+		catchupNodes: make([]*Node, 0),
+		archNodes:    make([]*Node, 0),
 		cState:       make(chan struct{}, 100),
 		broadcaster:  broadcast.NewBroadcaster(1),
 		bpSink:       make(chan uint64, 100),

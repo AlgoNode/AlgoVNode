@@ -61,6 +61,8 @@ func main() {
 
 	cluster := hacluster.New(ctx, cache, cfg, log)
 
+	cluster.WaitUP(ctx)
+
 	algodSrv := httpsrv.NewAlgodProxy(ctx, cf, cluster, cfg.Algod, log)
 
 	var idxSrv *http.Server = nil

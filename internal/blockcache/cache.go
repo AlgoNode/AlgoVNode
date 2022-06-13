@@ -23,10 +23,6 @@ type BlockCache struct {
 	name string
 }
 
-func (be *BlockEntry) WaitForBlock() {
-
-}
-
 func (bc *BlockCache) promiseBlock(round uint64) *BlockEntry {
 	//under ubc lock
 	be := &BlockEntry{

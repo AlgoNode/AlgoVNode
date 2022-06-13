@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with algonode.  If not, see <https://www.gnu.org/licenses/>.
 
-package node
+package hacluster
 
 import (
 	"context"
