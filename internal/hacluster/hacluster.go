@@ -363,6 +363,23 @@ func (gs *NodeCluster) blockSink(round uint64, src *Node, blockRaw []byte) {
 	src.log.Debugf("Block %d already in cache", round)
 }
 
+//opWait sleeps a bit if the calling node is not the last winner
+func (gs *NodeCluster) opWait(n *Node) {
+	gs.RLock()
+	lsrc := gs.latestSrc
+	gs.RUnlock()
+
+	if n == lsrc || n == nil || lsrc == nil {
+		return
+	}
+	waitMs := lsrc.GetRTT() * 4
+	if waitMs > 15 {
+		return
+	}
+	gs.log.Tracef("OpWait %.1f ms", waitMs)
+	time.Sleep(time.Duration(waitMs) * time.Millisecond)
+}
+
 //New instantiates all configured nodes and returns new node cluster object
 func New(ctx context.Context, ucache *blockcache.UnifiedBlockCache, cfg config.AlgoVNodeConfig, log *logrus.Entry) *NodeCluster {
 	cluster := &NodeCluster{

@@ -301,6 +301,7 @@ func (node *Node) Monitor(ctx context.Context) {
 			time.Sleep(time.Second)
 			continue
 		}
+		node.cluster.opWait(node)
 		clr := node.cluster.latestRoundGet()
 		if clr < lr+1 {
 			if !node.FetchBlockRaw(ctx, lr+1) {
